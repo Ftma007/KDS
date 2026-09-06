@@ -1,0 +1,49 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: "Oswald", sans-serif;
+  --font-tech: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  /* Sufra Lebanese & Afghan Kitchen Brand Palette */
+  --color-sufra-olive: #454024;
+  --color-sufra-coffee: #3F1C1A;
+  --color-sufra-sky: #426998;
+  --color-sufra-sun: #E5A330;
+  --color-sufra-desert: #EDD7A1;
+
+  --color-brand-orange: #E5A330;
+  --color-brand-navy: #3F1C1A;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #F8F3EA;
+  color: #2D1412;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar styling for Sufra warm theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F2E8D5;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #454024;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3F1C1A;
+}
+
+
+

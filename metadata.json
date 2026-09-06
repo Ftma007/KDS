@@ -1,0 +1,6 @@
+{
+  "name": "Square POS Custom KDS Demo",
+  "description": "An interactive, high-fidelity demo of a Custom Kitchen Display System (KDS) integrated with Square POS. Experience live multi-station order routing, quantity-based bumping, sticky label printing, failure recovery, and admin configurations in real-time.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
