@@ -1,0 +1,6 @@
+{
+  "appId": "com.sufra.kds",
+  "appName": "Sufra KDS",
+  "webDir": "dist",
+  "server": { "androidScheme": "https" }
+}
