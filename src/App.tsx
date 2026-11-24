@@ -368,13 +368,13 @@ export default function App() {
           const options = ['EXTRA MEAT', 'WELL DONE', 'MEDIUM', 'EXTRA RICE', 'SAUCE ON SIDE'];
           if (Math.random() > 0.45) mods.push(options[Math.floor(Math.random() * options.length)]);
         } else if (menuItem.category === 'Hot Mezze' || menuItem.category === 'Cold Mezze' || menuItem.category === 'Salads & Dips') {
-          const options = ['NO ONIONS', '🚨 SESAME ALLERGY — TAHINI-FREE', 'EXTRA CRISPY', 'PINE NUTS ADD-ON'];
+          const options = ['NO ONIONS', 'SESAME ALLERGY — TAHINI-FREE', 'EXTRA CRISPY', 'PINE NUTS ADD-ON'];
           if (Math.random() > 0.45) mods.push(options[Math.floor(Math.random() * options.length)]);
         } else if (menuItem.category === 'Coffee & Hot Drinks' || menuItem.category === 'Cold Drinks') {
           const options = ['OAT MILK', 'EXTRA SHOT', 'NO ICE', 'ADD LEMON SLICE'];
           if (Math.random() > 0.6) mods.push(options[Math.floor(Math.random() * options.length)]);
         } else if (menuItem.category === 'Pancakes & French Toast') {
-          const options = ['🚨 ALLERGY: NUTS', 'EXTRA MASCARPONE', 'SUB MAPLE FOR HONEY'];
+          const options = ['ALLERGY: NUTS', 'EXTRA MASCARPONE', 'SUB MAPLE FOR HONEY'];
           if (Math.random() > 0.6) mods.push(options[Math.floor(Math.random() * options.length)]);
         }
         

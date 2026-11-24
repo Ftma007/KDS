@@ -321,7 +321,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
               {Object.keys(routing).map((category) => (
                 <div key={category} className="flex justify-between items-center bg-stone-50/50 p-3 rounded-xl border border-stone-200 shadow-xs">
                   <span className="text-xs font-extrabold text-stone-800 capitalize font-display">
-                    {category === 'pizza' ? '🍕 Woodfired Pizza' : category === 'kitchen' ? '🍔 Kitchen Grill & Mains' : category === 'drinks' ? '🥤 Drinks Bar' : category === 'desserts' ? '🍰 Sweet Desserts' : `🏷️ ${category.replace('_', ' ')}`}
+                    {category === 'pizza' ? 'Woodfired Pizza' : category === 'kitchen' ? 'Kitchen Grill & Mains' : category === 'drinks' ? 'Drinks Bar' : category === 'desserts' ? 'Sweet Desserts' : `${category.replace('_', ' ')}`}
                   </span>
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] font-mono text-stone-400 font-bold">Maps To:</span>

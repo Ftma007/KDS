@@ -164,7 +164,7 @@ export const POSSimulator: React.FC<POSSimulatorProps> = ({ menuItems, onOrderSu
       setCustomerName('Mustafa Al-Hashimi');
       setTableNumber('Table 5');
       setNotes('VIP Multi-Station Combo: Deliver hot items together upon prep signoff');
-      setActiveComboName('👑 Sufra Royal Multi-Station Combo');
+      setActiveComboName('Sufra Royal Multi-Station Combo');
     } else if (type === 'afghan_feast') {
       const lines: CartLine[] = [
         { cartId: createRandomId('c'), menuItemId: 'afghan-mix', name: 'Afghan Mixed Plate', price: 38.0, stationId: 'st-grill', category: 'From Our Grill', modifiers: ['RICE: KABULI PALAW', 'EXTRA SIRMAST'] },
@@ -176,7 +176,7 @@ export const POSSimulator: React.FC<POSSimulatorProps> = ({ menuItems, onOrderSu
       setCustomerName('Farhad Rahimi');
       setTableNumber('Table 4');
       setNotes('Extra green chutney & fresh warm naan bread');
-      setActiveComboName('🇦🇫 Afghan Feast Combo');
+      setActiveComboName('Afghan Feast Combo');
     } else if (type === 'lebanese_grill') {
       const lines: CartLine[] = [
         { cartId: createRandomId('c'), menuItemId: 'leb-mixed-plate', name: 'Lebanese Mixed Plate', price: 38.0, stationId: 'st-grill', category: 'From Our Grill', modifiers: ['EXTRA TOUM GARLIC'] },
@@ -188,7 +188,7 @@ export const POSSimulator: React.FC<POSSimulatorProps> = ({ menuItems, onOrderSu
       setCustomerName('Zainab Al-Hassan');
       setTableNumber('Table 7');
       setNotes('Toum garlic on side, extra crispy bread for fattoush');
-      setActiveComboName('🇱🇧 Lebanese Grill Combo');
+      setActiveComboName('Lebanese Grill Combo');
     } else if (type === 'mezze_dumplings') {
       const lines: CartLine[] = [
         { cartId: createRandomId('c'), menuItemId: 'mantu-dumplings', name: 'Mantu (12 Lamb Dumplings)', price: 26.0, stationId: 'st-hotmezze', category: 'Hot Mezze', modifiers: [] },
@@ -200,7 +200,7 @@ export const POSSimulator: React.FC<POSSimulatorProps> = ({ menuItems, onOrderSu
       setCustomerName('Tariq Mansour');
       setTableNumber('Takeaway');
       setNotes('Pack tahini dip & yoghurt sauces separately');
-      setActiveComboName('🥟 Mezze & Dumplings Combo');
+      setActiveComboName('Mezze & Dumplings Combo');
     } else {
       // 3 Cappuccinos test case with distinct modifiers as requested by client
       const lines: CartLine[] = [
@@ -213,7 +213,7 @@ export const POSSimulator: React.FC<POSSimulatorProps> = ({ menuItems, onOrderSu
       setCustomerName('Layla Abboud');
       setTableNumber('Table 1');
       setNotes('Each cappuccino has unique milk & temperature modifiers');
-      setActiveComboName('☕ 3x Cappuccino + Pancakes Combo');
+      setActiveComboName('3x Cappuccino + Pancakes Combo');
     }
   };
 
@@ -313,35 +313,35 @@ export const POSSimulator: React.FC<POSSimulatorProps> = ({ menuItems, onOrderSu
               onClick={() => loadQuickCombo('sufra_multi_royal')}
               className="px-2.5 py-1.5 text-[11px] font-tech font-extrabold bg-[#3F1C1A] text-[#EDD7A1] border border-[#E5A330] hover:bg-[#2A1312] rounded-lg shadow-sm transition-all cursor-pointer flex items-center gap-1"
             >
-              👑 Multi-Station Royal Combo
+              Multi-Station Royal Combo
             </button>
             <button
               id="btn-combo-3caps"
               onClick={() => loadQuickCombo('pancakes_coffee')}
               className="px-2.5 py-1.5 text-[11px] font-tech font-bold bg-white text-[#3F1C1A] border border-[#EDD7A1] hover:border-[#E5A330] hover:bg-[#EDD7A1]/20 rounded-lg shadow-xs transition-all cursor-pointer"
             >
-              ☕ 3x Cappuccino + Modifiers Test
+              3x Cappuccino + Modifiers Test
             </button>
             <button
               id="btn-combo-afghan"
               onClick={() => loadQuickCombo('afghan_feast')}
               className="px-2.5 py-1.5 text-[11px] font-tech font-bold bg-white text-[#3F1C1A] border border-[#EDD7A1] hover:border-[#E5A330] hover:bg-[#EDD7A1]/20 rounded-lg shadow-xs transition-all cursor-pointer"
             >
-              🇦🇫 Afghan Feast
+              Afghan Feast
             </button>
             <button
               id="btn-combo-lebanese"
               onClick={() => loadQuickCombo('lebanese_grill')}
               className="px-2.5 py-1.5 text-[11px] font-tech font-bold bg-white text-[#3F1C1A] border border-[#EDD7A1] hover:border-[#E5A330] hover:bg-[#EDD7A1]/20 rounded-lg shadow-xs transition-all cursor-pointer"
             >
-              🇱🇧 Lebanese Grill
+              Lebanese Grill
             </button>
             <button
               id="btn-combo-mezze"
               onClick={() => loadQuickCombo('mezze_dumplings')}
               className="px-2.5 py-1.5 text-[11px] font-tech font-bold bg-white text-[#3F1C1A] border border-[#EDD7A1] hover:border-[#E5A330] hover:bg-[#EDD7A1]/20 rounded-lg shadow-xs transition-all cursor-pointer"
             >
-              🥟 Mezze & Dumplings
+              Mezze & Dumplings
             </button>
           </div>
         </div>
@@ -354,7 +354,7 @@ export const POSSimulator: React.FC<POSSimulatorProps> = ({ menuItems, onOrderSu
             return (
               <div key={cat} className="space-y-2">
                 <h4 className="text-xs font-display font-bold uppercase tracking-wider text-stone-500 border-b border-stone-200/80 pb-1.5">
-                  📦 {cat.toUpperCase()}
+                  {cat.toUpperCase()}
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {catItems.map((item) => (

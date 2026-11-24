@@ -96,7 +96,7 @@ export const INITIAL_ORDERS: Order[] = [
     tableNumber: 'Table 4',
     createdAt: new Date(Date.now() - 12 * 60000).toISOString(), // 12 mins ago
     status: 'preparing',
-    comboName: '🇦🇫 Afghan Feast Combo',
+    comboName: 'Afghan Feast Combo',
     items: [
       {
         id: 'item-1',

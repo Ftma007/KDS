@@ -40,7 +40,7 @@ export interface Order {
   createdAt: string;
   completedAt?: string;
   status: 'received' | 'preparing' | 'ready_to_pack' | 'completed';
-  comboName?: string; // E.g., '🇦🇫 Afghan Feast Combo'
+  comboName?: string; // E.g., 'Afghan Feast Combo'
   items: OrderItem[];
   notes?: string;
 }

@@ -53,48 +53,40 @@ const getStationBannerProps = (stationId: string, stationName: string, color: st
   const nameUpper = stationName.toUpperCase();
   if (stationId === 'st-grill' || nameUpper.includes('GRILL')) {
     return {
-      icon: '🔥',
       badgeClass: 'bg-orange-500/25 border-orange-500/70 text-orange-400 shadow-sm',
     };
   }
   if (stationId === 'st-kitchen' || nameUpper.includes('MAINS') || nameUpper.includes('KITCHEN')) {
     return {
-      icon: '🍳',
       badgeClass: 'bg-red-500/25 border-red-500/70 text-red-400 shadow-sm',
     };
   }
   if (stationId === 'st-hotmezze' || nameUpper.includes('HOT')) {
     return {
-      icon: '🥟',
       badgeClass: 'bg-amber-500/25 border-amber-500/70 text-amber-300 shadow-sm',
     };
   }
   if (stationId === 'st-coldmezze' || nameUpper.includes('COLD') || nameUpper.includes('SALAD')) {
     return {
-      icon: '🥗',
       badgeClass: 'bg-emerald-500/25 border-emerald-500/70 text-emerald-300 shadow-sm',
     };
   }
   if (stationId === 'st-drinks' || nameUpper.includes('DRINK') || nameUpper.includes('COFFEE') || nameUpper.includes('BAR')) {
     return {
-      icon: '☕',
       badgeClass: 'bg-sky-500/25 border-sky-500/70 text-sky-300 shadow-sm',
     };
   }
   if (stationId === 'st-desserts' || nameUpper.includes('DESSERT') || nameUpper.includes('SWEET')) {
     return {
-      icon: '🍰',
       badgeClass: 'bg-pink-500/25 border-pink-500/70 text-pink-300 shadow-sm',
     };
   }
   if (stationId === 'st-packing' || nameUpper.includes('PACK') || nameUpper.includes('PASS')) {
     return {
-      icon: '📦',
       badgeClass: 'bg-indigo-500/25 border-indigo-500/70 text-indigo-300 shadow-sm',
     };
   }
   return {
-    icon: '📍',
     badgeClass: 'bg-yellow-500/25 border-yellow-500/70 text-yellow-300 shadow-sm',
   };
 };
@@ -1181,7 +1173,6 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                                   {/* Station indicator tag above item name inside combo card */}
                                   <div className="flex justify-between items-center mb-1.5">
                                     <span className={`text-[11px] font-tech font-black uppercase tracking-wider px-2.5 py-0.5 rounded-md border flex items-center gap-1.5 ${bannerProps.badgeClass}`}>
-                                      <span>{bannerProps.icon}</span>
                                       <span>{stationName}</span>
                                     </span>
                                     {isMyStationItem && !isPackingStation ? (
@@ -1312,7 +1303,6 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                               <div className="flex justify-between items-center px-0.5">
                                 <div className="flex items-center gap-2">
                                   <span className={`text-xs sm:text-sm font-tech font-black uppercase tracking-widest px-3 py-1.5 rounded-xl border-2 shadow-sm flex items-center gap-2 ${bannerProps.badgeClass}`}>
-                                    <span className="text-base leading-none">{bannerProps.icon}</span>
                                     <span>{groupStation.name}</span>
                                   </span>
                                   {isCurrentStation && !isPackingStation && (
