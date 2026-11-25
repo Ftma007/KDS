@@ -1,6 +1,7 @@
 import React from 'react';
 import { Order, OrderItem, KDSStation, Printer, PrintJob, AuditLog, KDSConfig, UserRole, MenuItem, PendingBump } from './types';
-import { api, setAdminToken, setDeviceCredential, getDeviceCredential, ApiError } from './api/client';
+import { api, setAdminToken, setDeviceCredential, getDeviceCredential, ApiError, BACKEND_CONFIGURED, checkServerHealth } from './api/client';
+import { mapStations, mapMenuItem, mapOrder, mapPrinter, applyServerConfig } from './live/mappers';
 import { connectSocket, getSocket } from './api/socket';
 import {
   INITIAL_MENU,
@@ -69,11 +70,13 @@ function AdminLockNotice({ onLoginClick, label }: { onLoginClick: () => void; la
 
 export default function App() {
   // --- CORE KDS STATES & PERSISTENCE ---
-  const [orders, setOrders] = React.useState<Order[]>(INITIAL_ORDERS);
-  const [menuItems, setMenuItems] = React.useState<MenuItem[]>(INITIAL_MENU);
+  // Live builds (the Android app) start empty and fill from the server: never demo data.
+  const [orders, setOrders] = React.useState<Order[]>(BACKEND_CONFIGURED ? [] : INITIAL_ORDERS);
+  const [menuItems, setMenuItems] = React.useState<MenuItem[]>(BACKEND_CONFIGURED ? [] : INITIAL_MENU);
   
   // Production-Grade Persistent Station Config
   const [config, setConfig] = React.useState<KDSConfig>(() => {
+    if (BACKEND_CONFIGURED) return { ...DEFAULT_CONFIG, stations: [], displayOrder: [], categoryRouting: {} };
     try {
       const saved = localStorage.getItem('sufra_kds_config_v2');
       if (saved) {
@@ -92,6 +95,7 @@ export default function App() {
   });
 
   React.useEffect(() => {
+    if (BACKEND_CONFIGURED) return; // live settings live on the server
     try {
       localStorage.setItem('sufra_kds_config_v2', JSON.stringify(config));
     } catch (e) {
@@ -99,7 +103,7 @@ export default function App() {
     }
   }, [config]);
 
-  const [printers, setPrinters] = React.useState<Printer[]>(INITIAL_PRINTERS);
+  const [printers, setPrinters] = React.useState<Printer[]>(BACKEND_CONFIGURED ? [] : INITIAL_PRINTERS);
   const [printJobs, setPrintJobs] = React.useState<PrintJob[]>([]);
   
   // 5-Second Undo Grace Period Buffer State
@@ -167,7 +171,9 @@ export default function App() {
     if (window.location.protocol === 'https:' && window.location.hostname === 'localhost') return true;
     return new URLSearchParams(window.location.search).get('station-mode') === '1';
   }, []);
-  const [isScreenPaired, setIsScreenPaired] = React.useState<boolean>(() => localStorage.getItem('sufra_kds_station_id') !== null);
+  const [isScreenPaired, setIsScreenPaired] = React.useState<boolean>(() =>
+    BACKEND_CONFIGURED ? !!getDeviceCredential() : localStorage.getItem('sufra_kds_station_id') !== null
+  );
   const [screenRole, setScreenRole] = React.useState<'station' | 'customer'>(() =>
     localStorage.getItem('sufra_kds_screen_role') === 'customer' ? 'customer' : 'station'
   );
@@ -201,7 +207,7 @@ export default function App() {
   const handleAdminLoginAttempt = async () => {
     setAdminLoginError(null);
 
-    if (isBackendConnected) {
+    if (BACKEND_CONFIGURED) {
       try {
         const { token } = await api.adminLogin(adminEmailInput.trim(), adminPasswordInput);
         setAdminToken(token);
@@ -210,6 +216,7 @@ export default function App() {
         setAdminEmailInput('');
         setAdminPasswordInput('');
         writeLog('Admin Login', 'Admin authenticated on this device.', 'admin', 'administrator');
+        loadLiveData(false).catch(() => {}); // stations for "Set up this screen"
       } catch (err) {
         setAdminLoginError(err instanceof ApiError && err.status === 401 ? 'Incorrect email or password.' : 'Could not reach the backend server.');
       }
@@ -235,53 +242,142 @@ export default function App() {
     writeLog('Admin Logout', 'Admin session ended. Device returned to its paired station, no login required.', 'admin', 'administrator');
   };
 
-  // --- INITIAL BACKEND CONNECTION ---
-  // Attempts to reach the real backend once on load. If it succeeds, live
-  // data replaces the local demo arrays and Socket.IO takes over pushing
-  // updates. If it fails (no deployment yet, network issue), the app quietly
-  // continues on its local in-memory demo data — this is the same app you've
-  // already been testing, not a broken one.
+  // --- LIVE CONNECTION (Android app) ---
+  // Demo builds (the web demo) never connect: they run on demo data exactly as
+  // approved. Live builds load everything from the server, keep screens in step
+  // over Socket.IO, and never fall back to demo data.
+  const [liveStatus, setLiveStatus] = React.useState<'demo' | 'connecting' | 'ready' | 'offline'>(BACKEND_CONFIGURED ? 'connecting' : 'demo');
+  const [liveNotice, setLiveNotice] = React.useState<string | null>(null);
+  const [liveVenueId, setLiveVenueId] = React.useState<string | null>(null);
+  const [venueName, setVenueName] = React.useState<string | null>(null);
+
+  const showLiveNotice = (msg: string) => {
+    setLiveNotice(msg);
+    window.setTimeout(() => setLiveNotice(cur => (cur === msg ? null : cur)), 6000);
+  };
+  const liveErrorMessage = (err: unknown) =>
+    err instanceof ApiError ? err.message : 'Could not reach the server. Check the internet connection.';
+
+  const loadLiveData = async (withOrders: boolean) => {
+    const [st, cf, mn, pr] = await Promise.all([api.getStations(), api.getConfig(), api.getMenu(), api.getPrinters()]);
+    const stations = mapStations(st.stations);
+    setConfig(prev => applyServerConfig(prev, stations, cf.config));
+    setVenueName((cf as any).venue?.name || null);
+    setMenuItems(mn.items.map(mapMenuItem));
+    setPrinters(pr.printers.map(mapPrinter));
+    if (withOrders && getDeviceCredential()) {
+      const od = await api.getOrders({ filter: 'today' });
+      setOrders(od.orders.map(mapOrder));
+    }
+    setIsBackendConnected(true);
+    setLiveStatus('ready');
+  };
+
+  const upsertLiveOrder = (serverOrder: any) => {
+    if (!serverOrder) return;
+    const o = mapOrder(serverOrder);
+    setOrders(prev => {
+      const i = prev.findIndex(x => x.id === o.id);
+      if (i === -1) return [o, ...prev];
+      const next = prev.slice();
+      next[i] = o;
+      return next;
+    });
+  };
+
+  // Boot: a paired screen checks its key with the server and loads its data.
   React.useEffect(() => {
+    if (!BACKEND_CONFIGURED) return;
     let cancelled = false;
-
-    async function connect() {
+    let retry: number | undefined;
+    async function boot() {
+      if (!getDeviceCredential()) {
+        setIsScreenPaired(false);
+        setLiveStatus((await checkServerHealth()) ? 'ready' : 'offline');
+        return;
+      }
       try {
-        const [configRes, printersRes, menuRes] = await Promise.all([
-          api.getConfig(),
-          api.getPrinters(),
-          api.getMenu(),
-        ]);
+        const me = await api.whoAmI();
         if (cancelled) return;
-
-        setConfig((prev) => ({ ...prev, ...configRes.config }));
-        setPrinters(printersRes.printers);
-        setMenuItems(menuRes.items);
-        setIsBackendConnected(true);
-
-        writeLog('Backend Connected', 'Live backend reached — using real data instead of local demo data.', 'system', 'administrator');
-
-        // A device credential from a previous pairing, if this browser has one.
-        const existingCredential = getDeviceCredential();
-        if (existingCredential) {
-          try {
-            const identity = await api.whoAmI();
-            setActiveStationId(identity.stationId);
-          } catch {
-            // Stale/invalid credential — fall back to local station selection.
-            setDeviceCredential(null);
-          }
+        setLiveVenueId(me.venueId);
+        setScreenRole(me.role === 'customer_display' ? 'customer' : 'station');
+        if (me.role === 'station') setActiveStationId(me.stationId);
+        setIsScreenPaired(true);
+        await loadLiveData(true);
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof ApiError && (err.status === 401 || err.status === 409)) {
+          // Unpaired, or its station was removed: an Admin sets it up again.
+          setDeviceCredential(null);
+          setIsScreenPaired(false);
+          setLiveStatus('ready');
+          showLiveNotice('This screen needs to be set up again by an Admin.');
+          return;
         }
-      } catch {
-        // Backend not reachable — expected until it's actually deployed.
-        // eslint-disable-next-line no-console
-        console.warn('[backend] not reachable — running on local demo data.');
+        setLiveStatus('offline');
+        retry = window.setTimeout(boot, 10000);
       }
     }
-
-    connect();
-    return () => { cancelled = true; };
+    boot();
+    return () => {
+      cancelled = true;
+      if (retry) window.clearTimeout(retry);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Live updates: every screen in the venue hears every change.
+  React.useEffect(() => {
+    if (!BACKEND_CONFIGURED || !liveVenueId) return;
+    const socket = connectSocket(liveVenueId);
+    const onOrder = ({ orderId }: { orderId: string }) => {
+      api.getOrder(orderId).then(r => upsertLiveOrder(r.order)).catch(() => {});
+    };
+    const onConfig = () => { loadLiveData(false).catch(() => {}); };
+    const reloadOrders = () => {
+      if (!getDeviceCredential()) return;
+      api.getOrders({ filter: 'today' })
+        .then(r => { setOrders(r.orders.map(mapOrder)); setLiveStatus('ready'); })
+        .catch(() => setLiveStatus('offline'));
+    };
+    socket.on('order:updated', onOrder);
+    socket.on('config:updated', onConfig);
+    socket.on('connect', reloadOrders); // catches up on anything missed while disconnected
+    const safety = window.setInterval(reloadOrders, 30000); // belt and braces if an event is ever missed
+    return () => {
+      socket.off('order:updated', onOrder);
+      socket.off('config:updated', onConfig);
+      socket.off('connect', reloadOrders);
+      window.clearInterval(safety);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveVenueId]);
+
+  // Live actions: the server decides; the screen shows the result and the undo countdown.
+  const liveRun = async <T,>(p: Promise<T>): Promise<T | null> => {
+    try { return await p; } catch (err) { showLiveNotice(liveErrorMessage(err)); return null; }
+  };
+  const addLivePending = (r: { pendingActionId?: string; undoSeconds?: number }, kind: 'item_prep' | 'item_pack', orderId: string, itemId: string) => {
+    if (!r.pendingActionId || !r.undoSeconds) return;
+    setPendingBumps(prev => [{
+      id: r.pendingActionId!, orderId, itemId, bumpType: kind,
+      itemPreviousQty: { completed: 0, packed: 0, status: 'pending' }, orderPreviousStatus: 'preparing',
+      scheduledPrintJobs: [], willCompleteOrder: false,
+      secondsRemaining: r.undoSeconds!, totalSeconds: r.undoSeconds!, startTime: Date.now(),
+    }, ...prev]);
+  };
+  const liveBump = async (kind: 'item_prep' | 'item_pack', orderId: string, itemId: string) => {
+    const r = await liveRun(kind === 'item_prep' ? api.prepareItem(orderId, itemId) : api.packItem(orderId, itemId));
+    if (!r) return;
+    upsertLiveOrder(r.order);
+    addLivePending(r, kind, orderId, itemId);
+  };
+  const liveUndo = async (bump: PendingBump) => {
+    setPendingBumps(prev => prev.filter(b => b.id !== bump.id));
+    if (!bump.itemId) return;
+    const r = await liveRun(bump.bumpType === 'item_pack' ? api.undoPack(bump.orderId, bump.itemId) : api.undoPrepare(bump.orderId, bump.itemId));
+    if (r) upsertLiveOrder(r.order);
+  };
 
   // --- LOGGING HELPER ---
   const writeLog = (action: string, details: string, userId = 'staff', role: UserRole = currentUserRole, orderId?: string) => {
@@ -299,6 +395,14 @@ export default function App() {
 
   // --- ORDER SUBMISSION HANDLER (SQUARE WEBHOOK SIMULATOR) ---
   const handleOrderSubmit = (newOrder: Order) => {
+    if (BACKEND_CONFIGURED) {
+      // Live orders come from Square. Admin can still send a test order when the server allows it.
+      if (!isAdminMode) { showLiveNotice('Orders come from Square on the live system.'); return; }
+      const items = newOrder.items.map(i => ({ name: i.name, category: menuItems.find(m => m.id === i.menuItemId)?.category || '', quantity: i.quantity, modifiers: i.modifiers }));
+      liveRun(api.createTestOrder({ customerName: newOrder.customerName, tableNumber: newOrder.tableNumber, comboName: newOrder.comboName, notes: newOrder.notes, items }))
+        .then(r => r && upsertLiveOrder(r.order));
+      return;
+    }
     if (isOffline) {
       // Buffer the order in simulated "Square cloud buffer"
       setOfflineBufferQueue(prev => [...prev, newOrder]);
@@ -325,6 +429,7 @@ export default function App() {
 
   // --- INTERNET RECOVERY SIMULATION ---
   const handleToggleInternet = () => {
+    if (BACKEND_CONFIGURED) { showLiveNotice('The offline simulator is for the demo only.'); return; }
     if (isOffline) {
       // Reconnecting!
       setIsOffline(false);
@@ -365,6 +470,7 @@ export default function App() {
 
   // --- PEAK RUSH SIMULATOR ---
   const handleSimulateRush = () => {
+    if (BACKEND_CONFIGURED) { showLiveNotice('The rush simulator is for the demo only.'); return; }
     const customerNames = [
       'Sarah Jenkins', 'Michael Chang', 'Emma Watson', 'Liam Neeson', 
       'Sophia Loren', 'James Bond', 'Olivia Wilde', 'David Beckham'
@@ -604,6 +710,7 @@ export default function App() {
   const handleUndoBump = (pendingBumpId: string) => {
     const targetBump = pendingBumps.find(b => b.id === pendingBumpId);
     if (!targetBump) return;
+    if (BACKEND_CONFIGURED) { void liveUndo(targetBump); return; }
 
     // 1. Revert order items and order status
     setOrders(prevOrders => prevOrders.map(order => {
@@ -650,6 +757,7 @@ export default function App() {
 
   // --- BUMPING EVENT HANDLERS (With Configurable 0/3/5/10s Grace Period) ---
   const handleItemBump = (orderId: string, itemId: string) => {
+    if (BACKEND_CONFIGURED) { void liveBump('item_prep', orderId, itemId); return; }
     const targetOrder = orders.find(o => o.id === orderId);
     const targetItem = targetOrder?.items.find(i => i.id === itemId);
     if (!targetOrder || !targetItem) return;
@@ -742,6 +850,7 @@ export default function App() {
   };
 
   const handlePackingItemBump = (orderId: string, itemId: string) => {
+    if (BACKEND_CONFIGURED) { void liveBump('item_pack', orderId, itemId); return; }
     const targetOrder = orders.find(o => o.id === orderId);
     const targetItem = targetOrder?.items.find(i => i.id === itemId);
     if (!targetOrder || !targetItem) return;
@@ -844,6 +953,7 @@ export default function App() {
   };
 
   const handleOrderComplete = (orderId: string) => {
+    if (BACKEND_CONFIGURED) { showLiveNotice('On the live system an order completes by itself when its last item is confirmed at Packing & Pass.'); return; }
     const targetOrder = orders.find(o => o.id === orderId);
     if (!targetOrder) return;
 
@@ -906,6 +1016,7 @@ export default function App() {
 
   // --- RECALL / REMAKE EVENT HANDLERS (Section 13: Recalling and Remaking Completed Items) ---
   const handleItemRecall = (orderId: string, itemId: string) => {
+    if (BACKEND_CONFIGURED) { liveRun(api.recallItem(orderId, itemId)).then(r => r && upsertLiveOrder(r.order)); return; }
     setOrders(prevOrders => {
       return prevOrders.map(order => {
         if (order.id !== orderId) return order;
@@ -941,6 +1052,7 @@ export default function App() {
   };
 
   const handleOrderRecall = (orderId: string) => {
+    if (BACKEND_CONFIGURED) { liveRun(api.recallEntireOrder(orderId)).then(r => r && upsertLiveOrder(r.order)); return; }
     setOrders(prevOrders => {
       return prevOrders.map(order => {
         if (order.id !== orderId) return order;
@@ -972,6 +1084,7 @@ export default function App() {
   };
 
   const handleReprintDocket = (orderId: string) => {
+    if (BACKEND_CONFIGURED) { liveRun(api.reprintTicket(orderId)).then(r => r && showLiveNotice('Order ticket sent to print.')); return; }
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
 
@@ -988,6 +1101,7 @@ export default function App() {
   };
 
   const handleManualReprint = (orderId: string, itemId: string, actingStationId: string = 'st-packing') => {
+    if (BACKEND_CONFIGURED) { liveRun(api.reprintLabel(orderId, itemId)).then(r => r && showLiveNotice('Sticker sent to print.')); return; }
     const order = orders.find(o => o.id === orderId);
     const item = order?.items.find(i => i.id === itemId);
     if (!order || !item) return;
@@ -1020,6 +1134,13 @@ export default function App() {
 
   // --- MENU STOCK TOGGLES ---
   const handleStockToggle = (itemId: string, inStock?: boolean) => {
+    if (BACKEND_CONFIGURED) {
+      const current = menuItems.find(m => m.id === itemId);
+      if (!current) return;
+      const next = inStock !== undefined ? inStock : !current.inStock;
+      liveRun(api.setStock(itemId, next)).then(r => { if (r) setMenuItems(prev => prev.map(m => (m.id === itemId ? { ...m, inStock: next } : m))); });
+      return;
+    }
     let newInStockState = false;
     setMenuItems(prev => prev.map(item => {
       if (item.id === itemId) {
@@ -1046,7 +1167,48 @@ export default function App() {
   };
 
   // --- CONFIG CHANGES ---
+  // Live: send only what changed to the server, then reload so the screen shows what was saved.
+  const syncConfigToServer = async (prev: KDSConfig, next: KDSConfig) => {
+    const jobs: Promise<unknown>[] = [];
+    if (
+      next.undoGracePeriodSeconds !== prev.undoGracePeriodSeconds ||
+      JSON.stringify(next.categoryRouting) !== JSON.stringify(prev.categoryRouting)
+    ) {
+      jobs.push(api.updateConfig({ undoGracePeriodSeconds: next.undoGracePeriodSeconds, categoryRouting: next.categoryRouting }));
+    }
+    const prevById = new Map(prev.stations.map((st, i) => [st.id, { st, i }]));
+    next.stations.forEach((st, i) => {
+      const old = prevById.get(st.id);
+      if (!old) {
+        jobs.push(api.createStation({ name: st.name, color: st.color, displayOrder: i }));
+        return;
+      }
+      const body: Record<string, unknown> = {};
+      if (st.name !== old.st.name) body.name = st.name;
+      if (st.color !== old.st.color) body.color = st.color;
+      if ((st.printerId || '') !== (old.st.printerId || '')) body.printerId = st.printerId || null;
+      if (!!st.labelPrintingEnabled !== !!old.st.labelPrintingEnabled) body.labelPrintingEnabled = !!st.labelPrintingEnabled;
+      if ((st.showOtherStationItems !== false) !== (old.st.showOtherStationItems !== false)) body.showOtherStationItems = st.showOtherStationItems !== false;
+      if (i !== old.i) body.displayOrder = i;
+      if (Object.keys(body).length) jobs.push(api.updateStation(st.id, body));
+    });
+    const nextIds = new Set(next.stations.map(st => st.id));
+    prev.stations.forEach(st => { if (!nextIds.has(st.id)) jobs.push(api.deleteStation(st.id)); });
+
+    const results = await Promise.allSettled(jobs);
+    const failed = results.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+    if (failed) showLiveNotice(`Not saved: ${liveErrorMessage(failed.reason)}`);
+    else if (jobs.length) showLiveNotice('Settings saved.');
+    await loadLiveData(false).catch(() => {});
+  };
+
   const handleConfigChange = (newConfig: KDSConfig) => {
+    if (BACKEND_CONFIGURED) {
+      const prev = config;
+      setConfig(newConfig);
+      void syncConfigToServer(prev, newConfig);
+      return;
+    }
     setConfig(newConfig);
     writeLog(
       'KDS Config Updated',
@@ -1057,6 +1219,7 @@ export default function App() {
   };
 
   const handlePrinterAdd = (newPrinter: Printer) => {
+    if (BACKEND_CONFIGURED) { liveRun(api.createPrinter({ name: newPrinter.name, type: newPrinter.type })).then(r => { if (r) loadLiveData(false).catch(() => {}); }); return; }
     setPrinters(prev => [...prev, newPrinter]);
     writeLog(
       'Hardware Registered',
@@ -1067,6 +1230,7 @@ export default function App() {
   };
 
   const handlePrinterDelete = (printerId: string) => {
+    if (BACKEND_CONFIGURED) { liveRun(api.deletePrinter(printerId)).then(r => { if (r) loadLiveData(false).catch(() => {}); }); return; }
     setPrinters(prev => prev.filter(p => p.id !== printerId));
     writeLog(
       'Hardware Deregistered',
@@ -1075,6 +1239,21 @@ export default function App() {
       'administrator'
     );
   };
+
+  const liveBanner = (
+    <>
+      {liveStatus === 'offline' && (
+        <div className="fixed top-0 inset-x-0 z-[60] bg-rose-700 text-white text-xs font-tech font-bold uppercase tracking-wider text-center py-2" id="live-offline-banner">
+          No connection to the server. Retrying...
+        </div>
+      )}
+      {liveNotice && (
+        <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-[60] max-w-md bg-[#3F1C1A] text-[#EDD7A1] text-xs font-tech font-bold px-4 py-2.5 rounded-xl shadow-xl text-center" id="live-notice">
+          {liveNotice}
+        </div>
+      )}
+    </>
+  );
 
   const adminLoginModal = showAdminLogin ? (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" id="admin-login-modal">
@@ -1141,7 +1320,35 @@ export default function App() {
         setShowAdminLogin(true);
       }
     };
-    const pairScreen = (role: 'station' | 'customer', stationId?: string) => {
+    const pairScreen = async (role: 'station' | 'customer', stationId?: string) => {
+      if (BACKEND_CONFIGURED) {
+        // Admin pairs this screen on the server; the screen keeps its own key from then on.
+        const station = config.stations.find(s => s.id === stationId);
+        let oldDeviceId: string | null = null;
+        if (getDeviceCredential()) {
+          try { oldDeviceId = (await api.whoAmI()).deviceId; } catch { /* old key already invalid */ }
+        }
+        try {
+          const res = await api.pairDevice(
+            role === 'customer'
+              ? { role: 'customer_display', deviceLabel: 'Customer Display screen' }
+              : { stationId: stationId!, deviceLabel: `${station?.name || 'Station'} screen` }
+          );
+          setDeviceCredential(res.credential);
+          if (oldDeviceId && oldDeviceId !== res.deviceId) api.unpairDevice(oldDeviceId).catch(() => {});
+          const me = await api.whoAmI();
+          setLiveVenueId(me.venueId);
+          if (role === 'station' && stationId) setActiveStationId(stationId);
+          setScreenRole(role);
+          setIsScreenPaired(true);
+          setShowScreenSetup(false);
+          await loadLiveData(true);
+          writeLog('Screen Paired', role === 'customer' ? 'Admin set this screen as the Customer Display.' : `Admin paired this screen to ${station?.name || stationId}.`, 'admin', 'administrator');
+        } catch (err) {
+          showLiveNotice(liveErrorMessage(err));
+        }
+        return;
+      }
       if (role === 'station' && stationId) setActiveStationId(stationId);
       setScreenRole(role);
       setIsScreenPaired(true);
@@ -1173,8 +1380,14 @@ export default function App() {
               </button>
             </div>
           </div>
+        ) : BACKEND_CONFIGURED && liveStatus !== 'ready' && config.stations.length === 0 ? (
+          <div className="min-h-screen flex items-center justify-center p-6" id="station-app-connecting">
+            <p className="text-sm font-tech font-bold uppercase tracking-widest text-[#EDD7A1]/70">
+              {liveStatus === 'offline' ? 'Waiting for the server...' : 'Connecting...'}
+            </p>
+          </div>
         ) : screenRole === 'customer' ? (
-          <CustomerDisplay orders={orders} />
+          <CustomerDisplay orders={orders} venueName={BACKEND_CONFIGURED ? venueName : undefined} />
         ) : pairedStation ? (
           <div className="p-2 sm:p-3">
             <KDSStationView
@@ -1282,6 +1495,7 @@ export default function App() {
         )}
 
         {adminLoginModal}
+        {liveBanner}
       </div>
     );
   }
@@ -1297,10 +1511,10 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-lg font-display uppercase tracking-wider text-[#EDD7A1] flex items-center gap-2 font-extrabold">
-              Sufra KDS & POS
+              {BACKEND_CONFIGURED && venueName ? `${venueName} KDS` : 'Sufra KDS & POS'}
             </h1>
             <p className="text-[10px] text-[#EDD7A1]/80 font-mono tracking-widest uppercase font-bold">
-              Lebanese & Afghan Kitchen • Local KDS Node • Webhooks Connected
+              {BACKEND_CONFIGURED ? 'Kitchen Display System' : 'Lebanese & Afghan Kitchen • Local KDS Node • Webhooks Connected'}
             </p>
           </div>
         </div>
@@ -1376,6 +1590,7 @@ export default function App() {
 
       {/* ADMIN LOGIN MODAL — the only login screen in the whole system */}
       {adminLoginModal}
+      {liveBanner}
 
       {/* 2. LIVE METRICS BAR */}
       <section className="bg-[#EDD7A1]/30 border-b border-[#EDD7A1] px-6 py-3 grid grid-cols-2 md:grid-cols-4 gap-4" id="metrics-bar">
@@ -1455,7 +1670,7 @@ export default function App() {
         </div>
 
         <div className="text-[10px] font-mono font-bold text-[#454024] uppercase tracking-wider">
-          Sufra Kitchen Operations Console
+          {BACKEND_CONFIGURED ? `${venueName || 'Kitchen'} Operations Console` : 'Sufra Kitchen Operations Console'}
         </div>
       </div>
 
@@ -1744,6 +1959,12 @@ export default function App() {
                   onConfigChange={handleConfigChange}
                   onPrinterAdd={handlePrinterAdd}
                   onPrinterDelete={handlePrinterDelete}
+                  venueName={BACKEND_CONFIGURED ? venueName : undefined}
+                  onVenueNameSave={BACKEND_CONFIGURED ? (name: string) => {
+                    liveRun(api.updateConfig({ venueName: name })).then(r => {
+                      if (r) { setVenueName((r as any).venue?.name || name); showLiveNotice('Venue name saved.'); }
+                    });
+                  } : undefined}
                 />
                 ) : (
                   <AdminLockNotice onLoginClick={() => setShowAdminLogin(true)} label="stations, routing, printers and venue configuration" />
@@ -1780,7 +2001,7 @@ export default function App() {
 
         {/* --- PERSPECTIVE D: CUSTOMER ORDER PROGRESS DISPLAY --- */}
         {activeWorkspaceTab === 'customer' && (
-          <CustomerDisplay orders={orders} />
+          <CustomerDisplay orders={orders} venueName={BACKEND_CONFIGURED ? venueName : undefined} />
         )}
       </main>
 

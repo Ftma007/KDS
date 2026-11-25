@@ -1,5 +1,5 @@
 import React from 'react';
-import { KDSConfig, KDSStation, Printer, MenuItem } from '../types';
+import { KDSConfig, KDSStation, Printer, MenuItem, isPackingStationObj } from '../types';
 import { Settings, Save, AlertTriangle, Plus, Trash2, Printer as PrinterIcon, RefreshCw, Eye } from 'lucide-react';
 
 interface AdminConfigProps {
@@ -9,6 +9,8 @@ interface AdminConfigProps {
   onConfigChange: (newConfig: KDSConfig) => void;
   onPrinterAdd: (printer: Printer) => void;
   onPrinterDelete: (printerId: string) => void;
+  venueName?: string | null; // live only
+  onVenueNameSave?: (name: string) => void; // live only: shown only when provided
 }
 
 export const AdminConfig: React.FC<AdminConfigProps> = ({
@@ -17,10 +19,14 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
   menuItems,
   onConfigChange,
   onPrinterAdd,
+  venueName,
+  onVenueNameSave,
   onPrinterDelete,
 }) => {
   const [stations, setStations] = React.useState<KDSStation[]>(config.stations);
   const [routing, setRouting] = React.useState<Record<string, string>>(config.categoryRouting);
+  const [venueNameDraft, setVenueNameDraft] = React.useState<string>(venueName || '');
+  React.useEffect(() => { setVenueNameDraft(venueName || ''); }, [venueName]);
   const [undoGracePeriod, setUndoGracePeriod] = React.useState<number>(
     config.undoGracePeriodSeconds !== undefined ? config.undoGracePeriodSeconds : 5
   );
@@ -164,6 +170,34 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
             Configure display station aliases. Rename these screens depending on your seasonal shift constraints.
           </p>
 
+          {/* Venue name (live system): shown on the Customer Display, set per venue */}
+          {onVenueNameSave && (
+            <div className="bg-stone-50/50 p-3 rounded-xl border border-stone-200 shadow-xs flex items-end gap-2" id="venue-name-card">
+              <div className="flex-1">
+                <label className="block text-[10px] font-mono font-bold text-stone-500 uppercase tracking-wide mb-1" htmlFor="input-venue-name">
+                  Venue Name
+                </label>
+                <input
+                  id="input-venue-name"
+                  type="text"
+                  maxLength={60}
+                  value={venueNameDraft}
+                  onChange={(e) => setVenueNameDraft(e.target.value)}
+                  className="w-full bg-white border border-stone-200 text-xs rounded-lg p-2 text-stone-800 focus:outline-hidden"
+                />
+              </div>
+              <button
+                id="btn-save-venue-name"
+                type="button"
+                disabled={!venueNameDraft.trim() || venueNameDraft.trim() === (venueName || '')}
+                onClick={() => onVenueNameSave(venueNameDraft.trim())}
+                className="px-3 py-2 rounded-lg bg-[#3F1C1A] text-[#EDD7A1] text-xs font-tech font-bold uppercase tracking-wider cursor-pointer disabled:opacity-40 disabled:cursor-default"
+              >
+                Save
+              </button>
+            </div>
+          )}
+
           <div className="space-y-3.5">
             {stations.map((st, index) => (
               <div key={st.id} className="bg-stone-50/50 border border-stone-200 p-4 rounded-xl space-y-3 shadow-xs">
@@ -255,7 +289,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
                     </div>
                     <p className="text-[10px] text-stone-500 font-mono mt-0.5">
                       {st.labelPrintingEnabled
-                        ? (st.id === 'st-packing'
+                        ? (isPackingStationObj(st)
                             ? 'Sticky item labels & final packing docket reprint active on pass.'
                             : 'Sticky label print/reprint controls enabled for this station\'s items.')
                         : 'No print or reprint controls rendered on this kiosk screen.'}
@@ -294,7 +328,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
                 </div>
 
                 {/* Per-Station: show other stations' items (Packing & Pass always sees everything) */}
-                {st.id !== 'st-packing' && (() => {
+                {!isPackingStationObj(st) && (() => {
                   const showOthers = st.showOtherStationItems !== false;
                   return (
                     <div className="pt-2 border-t border-stone-200/80 flex items-center justify-between gap-3">

@@ -15,6 +15,8 @@ export interface KDSStation {
   color: string; // Tailwind border/bg color code
   printerId: string;
   labelPrintingEnabled?: boolean; // Per-station Label Printing (On/Off)
+  isPackingStation?: boolean; // live data: set by the server (demo: id 'st-packing')
+  isDocketHandlingStation?: boolean;
   showOtherStationItems?: boolean; // On (default): tickets also show other stations' items for context. Off: only this station's own items and orders. Packing & Pass always sees everything.
 }
 
@@ -34,7 +36,8 @@ export interface OrderItem {
 }
 
 export interface Order {
-  id: string; // E.g., SQ-1001
+  id: string; // unique key. Demo: SQ-1001. Live: the server's id
+  displayId?: string; // the number shown on screen when it differs from id (live: Square's ticket number)
   source: 'Square POS' | 'Online Store';
   customerName: string;
   tableNumber?: string;
@@ -98,3 +101,10 @@ export interface PendingBump {
   totalSeconds: number;
   startTime: number;
 }
+
+/** The order number to show people. Live orders show Square's number; demo orders their id. */
+export const orderLabel = (o: { id: string; displayId?: string }): string => o.displayId || o.id;
+
+/** Packing & Pass: the server's flag on live data, the 'st-packing' id on demo data. */
+export const isPackingStationObj = (st?: { id: string; isPackingStation?: boolean } | null): boolean =>
+  !!st && (st.isPackingStation === true || st.id === 'st-packing');

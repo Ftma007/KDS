@@ -27,6 +27,10 @@ jobs:
         run: npm ci || npm install
 
       - name: Build the screens
+        env:
+          # The Android app is the live system: it talks to the server.
+          # (The web version on Vercel has no server address, so it stays the demo.)
+          VITE_API_URL: https://sufra-kds-backend.onrender.com/api
         run: npm run build
 
       - name: Add the Android tools for this build only (package.json is not changed)

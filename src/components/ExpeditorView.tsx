@@ -1,5 +1,5 @@
 import React from 'react';
-import { Order, KDSStation, UserRole } from '../types';
+import { Order, KDSStation, UserRole, orderLabel } from '../types';
 import { Shield, RefreshCw, AlertTriangle, Printer, Undo, Eye, CheckCircle2, PackageCheck, Sparkles, RotateCcw, Receipt, Search, X, Clock, History } from 'lucide-react';
 import { formatTime, getDurationMinutes } from '../utils';
 
@@ -59,7 +59,7 @@ export const ExpeditorView: React.FC<ExpeditorViewProps> = ({
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchId = order.id.toLowerCase().includes(q);
+        const matchId = order.id.toLowerCase().includes(q) || orderLabel(order).toLowerCase().includes(q);
         const matchCustomer = order.customerName.toLowerCase().includes(q);
         const matchTable = (order.tableNumber || '').toLowerCase().includes(q);
         const matchCombo = (order.comboName || '').toLowerCase().includes(q);
@@ -238,7 +238,7 @@ export const ExpeditorView: React.FC<ExpeditorViewProps> = ({
                         onClick={() => setSelectedOrder(order)}
                       >
                         <td className="py-3 px-3">
-                          <span className="font-tech font-extrabold text-xs text-stone-900">{order.id.toUpperCase()}</span>
+                          <span className="font-tech font-extrabold text-xs text-stone-900">{orderLabel(order).toUpperCase()}</span>
                         </td>
                         <td className="py-3 px-3">
                           <div className="text-xs font-bold text-stone-850">{order.customerName}</div>
@@ -295,7 +295,7 @@ export const ExpeditorView: React.FC<ExpeditorViewProps> = ({
                 <div className="flex justify-between items-start border-b border-stone-200 pb-3">
                   <div>
                     <h4 className="text-xs font-tech font-extrabold text-stone-900 uppercase tracking-wider">
-                      Ticket: {selectedOrder.id.toUpperCase()}
+                      Ticket: {orderLabel(selectedOrder).toUpperCase()}
                     </h4>
                     <p className="text-[9px] font-mono text-stone-400 font-bold uppercase">{formatTime(selectedOrder.createdAt)}</p>
                   </div>

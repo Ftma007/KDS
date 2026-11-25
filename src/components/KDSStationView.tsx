@@ -1,5 +1,5 @@
 import React from 'react';
-import { Order, OrderItem, KDSStation, UserRole, MenuItem, PendingBump, KDSConfig } from '../types';
+import { Order, OrderItem, KDSStation, UserRole, MenuItem, PendingBump, KDSConfig, orderLabel, isPackingStationObj } from '../types';
 import { Check, Clock, AlertTriangle, Printer, ToggleLeft, ToggleRight, PackageX, PackageCheck, Search, X, Sparkles, History, Undo, RotateCcw, Receipt, ArrowLeft, Undo2, Timer, Eye, EyeOff, ShieldAlert } from 'lucide-react';
 import { formatTime, getDurationMinutes } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -110,7 +110,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
   config,
   onConfigChange,
 }) => {
-  const isPackingStation = station.id === 'st-packing';
+  const isPackingStation = isPackingStationObj(station);
   // Admin option per station. Packing & Pass always sees every item and order.
   const showOtherStationItems = isPackingStation || station.showOtherStationItems !== false;
   const isStationLabelPrintingEnabled = station.labelPrintingEnabled ?? false;
@@ -204,7 +204,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
 
       if (historySearchQuery.trim()) {
         const q = historySearchQuery.toLowerCase();
-        const matchId = order.id.toLowerCase().includes(q);
+        const matchId = order.id.toLowerCase().includes(q) || orderLabel(order).toLowerCase().includes(q);
         const matchCustomer = order.customerName.toLowerCase().includes(q);
         const matchTable = (order.tableNumber || '').toLowerCase().includes(q);
         const matchCombo = (order.comboName || '').toLowerCase().includes(q);
@@ -654,7 +654,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-[#3F1C1A] pb-3">
                         <div className="flex items-center gap-3 flex-wrap">
                           <span className="font-mono text-base font-black text-[#E5A330] bg-[#3F1C1A] px-2.5 py-1 rounded-lg border border-[#454024]">
-                            #{order.id.slice(-4).toUpperCase()}
+                            #{orderLabel(order).slice(-4).toUpperCase()}
                           </span>
                           <div>
                             <div className="flex items-center gap-2">
@@ -698,7 +698,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                               id={`btn-recall-order-${order.id}`}
                               onClick={() => {
                                 onOrderRecall?.(order.id);
-                                showToast(`Order #${order.id.slice(-4).toUpperCase()} recalled to kitchen!`);
+                                showToast(`Order #${orderLabel(order).slice(-4).toUpperCase()} recalled to kitchen!`);
                                 setShowHistoryModal(false);
                               }}
                               className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 border border-rose-400 text-white rounded-lg text-xs font-tech font-black flex items-center gap-1.5 cursor-pointer shadow-md transition-all active:scale-95 uppercase tracking-wider"
@@ -719,7 +719,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                               id={`btn-reprint-docket-${order.id}`}
                               onClick={() => {
                                 onReprintDocket?.(order.id);
-                                showToast(`Sent Docket #${order.id.slice(-4).toUpperCase()} to ${station.name} Printer!`);
+                                showToast(`Sent Docket #${orderLabel(order).slice(-4).toUpperCase()} to ${station.name} Printer!`);
                               }}
                               className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 border border-stone-600 text-stone-200 rounded-lg text-xs font-tech font-bold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95"
                             >
@@ -1045,7 +1045,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                       <div>
                         <div className="flex items-center gap-1.5">
                           <h3 className="font-display font-extrabold text-lg tracking-wider text-white bg-stone-950 px-2 py-0.5 rounded-md border border-stone-850">
-                            {order.id}
+                            {orderLabel(order)}
                           </h3>
                           <span className={`text-[9px] font-tech font-bold uppercase px-1.5 py-0.5 rounded border ${
                             kdsTheme === 'dark' ? 'bg-stone-900 border-stone-800 text-stone-400' : 'bg-white border-stone-200 text-stone-500'

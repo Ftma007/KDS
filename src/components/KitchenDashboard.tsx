@@ -29,7 +29,7 @@ import {
   Cell,
   Legend 
 } from 'recharts';
-import { Order, KDSStation, MenuItem } from '../types';
+import { Order, KDSStation, MenuItem, orderLabel } from '../types';
 
 interface KitchenDashboardProps {
   orders: Order[];
@@ -909,7 +909,7 @@ export const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                                   {order.customerName}
                                 </span>
                                 <span className="text-[9px] text-stone-500 font-bold block">
-                                  {order.id.toUpperCase()} • T{order.tableNumber || 'Takeaway'}
+                                  {orderLabel(order).toUpperCase()} • T{order.tableNumber || 'Takeaway'}
                                 </span>
                               </div>
                               <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase ${
@@ -996,7 +996,7 @@ export const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                           {order.customerName}
                         </h4>
                         <span className="text-[9px] text-stone-500 font-bold block">
-                          {order.id.toUpperCase()} • {order.source}
+                          {orderLabel(order).toUpperCase()} • {order.source}
                         </span>
                       </div>
                       

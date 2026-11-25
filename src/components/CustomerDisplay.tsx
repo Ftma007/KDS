@@ -1,13 +1,14 @@
 import React from 'react';
-import { Order } from '../types';
+import { Order, orderLabel } from '../types';
 import { Clock, CheckCircle2, Flame, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface CustomerDisplayProps {
   orders: Order[];
+  venueName?: string | null; // live: the venue's own name (demo keeps its approved text)
 }
 
-export const CustomerDisplay: React.FC<CustomerDisplayProps> = ({ orders }) => {
+export const CustomerDisplay: React.FC<CustomerDisplayProps> = ({ orders, venueName }) => {
   const [time, setTime] = React.useState(new Date().toLocaleTimeString());
 
   React.useEffect(() => {
@@ -35,10 +36,10 @@ export const CustomerDisplay: React.FC<CustomerDisplayProps> = ({ orders }) => {
           </div>
           <div>
             <h1 className="text-2xl font-black uppercase tracking-wider text-[#EDD7A1]">
-              Sufra Order Status
+              {venueName ? `${venueName} Order Status` : 'Sufra Order Status'}
             </h1>
             <p className="text-xs text-[#E5A330] font-mono uppercase font-bold tracking-widest">
-              Lebanese & Afghan Kitchen • Live Order Display
+              {venueName ? 'Live Order Display' : 'Lebanese & Afghan Kitchen • Live Order Display'}
             </p>
           </div>
         </div>
@@ -77,7 +78,7 @@ export const CustomerDisplay: React.FC<CustomerDisplayProps> = ({ orders }) => {
                   className="bg-[#2D1412] border-2 border-[#E5A330]/30 rounded-xl p-4 flex flex-col items-center justify-center text-center shadow-md hover:border-[#E5A330] transition-all"
                 >
                   <span className="text-2xl font-black font-mono text-[#EDD7A1] tracking-wider">
-                    {order.id}
+                    {orderLabel(order)}
                   </span>
                   <span className="text-[10px] font-mono text-[#E5A330] mt-1 font-bold uppercase truncate max-w-full">
                     {order.customerName}
@@ -122,7 +123,7 @@ export const CustomerDisplay: React.FC<CustomerDisplayProps> = ({ orders }) => {
                   className="bg-gradient-to-b from-[#E5A330] to-[#c58a20] text-[#3F1C1A] rounded-xl p-4 flex flex-col items-center justify-center text-center shadow-lg font-bold border-2 border-[#EDD7A1]"
                 >
                   <span className="text-2xl font-black font-mono tracking-widest text-[#3F1C1A]">
-                    {order.id}
+                    {orderLabel(order)}
                   </span>
                   <span className="text-[11px] font-extrabold uppercase mt-1 truncate max-w-full text-[#2D1412]">
                     {order.customerName}
@@ -147,7 +148,7 @@ export const CustomerDisplay: React.FC<CustomerDisplayProps> = ({ orders }) => {
       {/* Footer Banner */}
       <footer className="mt-6 pt-4 border-t border-[#454024] flex justify-between items-center text-xs text-[#EDD7A1]/70 font-mono">
         <span>Please show your ticket number at the counter when calling.</span>
-        <span className="font-bold text-[#E5A330]">Sufra KDS Smart Queue System</span>
+        <span className="font-bold text-[#E5A330]">{venueName || 'Sufra KDS Smart Queue System'}</span>
       </footer>
     </div>
   );

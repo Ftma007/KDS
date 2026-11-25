@@ -5,6 +5,24 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
+/**
+ * Live mode: this build was given a server address (the Android app's build
+ * sets VITE_API_URL). A live build NEVER falls back to demo data, so a kitchen
+ * screen can never show or bump fake orders. Builds without it (the web demo)
+ * keep running on demo data exactly as approved.
+ */
+export const BACKEND_CONFIGURED = !!import.meta.env.VITE_API_URL;
+
+/** The server's public health check (no login needed). */
+export async function checkServerHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(API_BASE_URL.replace(/\/api$/, '') + '/health');
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 const ADMIN_TOKEN_KEY = 'sufra_admin_token';
 const DEVICE_CREDENTIAL_KEY = 'sufra_device_credential';
 
@@ -69,6 +87,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return data as T;
 }
 
+type ServerOrderAction = { order: any; item?: any; pendingActionId?: string; undoSeconds?: number };
+
 export const api = {
   // --- Auth ---
   adminLogin: (email: string, password: string) =>
@@ -77,23 +97,23 @@ export const api = {
       body: { email, password },
       auth: 'none',
     }),
-  pairDevice: (stationId: string, deviceLabel: string) =>
-    request<{ deviceId: string; credential: string; stationId: string; stationName: string }>('/auth/devices/pair', {
-      method: 'POST',
-      body: { stationId, deviceLabel },
-      auth: 'admin',
-    }),
+  /** Admin pairs this screen to a station, or as the Customer Display (role customer_display). */
+  pairDevice: (body: { stationId?: string; deviceLabel: string; role?: 'station' | 'customer_display' }) =>
+    request<{ deviceId: string; credential: string; role: 'station' | 'customer_display'; stationId: string | null; stationName: string }>(
+      '/auth/devices/pair',
+      { method: 'POST', body, auth: 'admin' }
+    ),
   unpairDevice: (deviceId: string) =>
     request<{ ok: true }>(`/auth/devices/${deviceId}/unpair`, { method: 'POST', auth: 'admin' }),
   listDevices: () => request<{ devices: any[] }>('/auth/devices', { auth: 'admin' }),
   whoAmI: () =>
-    request<{ stationId: string; stationName: string; labelPrintingEnabled: boolean; isDocketHandlingStation: boolean; isPackingStation: boolean }>(
-      '/auth/devices/me',
-      { auth: 'device' }
-    ),
+    request<{
+      deviceId: string; venueId: string; role: 'station' | 'customer_display';
+      stationId: string; stationName: string; labelPrintingEnabled: boolean; isDocketHandlingStation: boolean; isPackingStation: boolean;
+    }>('/auth/devices/me', { auth: 'device' }),
 
-  // --- Stations ---
-  getStations: () => request<{ stations: any[] }>('/stations', { auth: 'admin' }),
+  // --- Stations (screens and Admin can read; Admin manages) ---
+  getStations: () => request<{ stations: any[] }>('/stations'),
   createStation: (body: any) => request<{ station: any }>('/stations', { method: 'POST', body, auth: 'admin' }),
   updateStation: (id: string, body: any) => request<{ station: any }>(`/stations/${id}`, { method: 'PATCH', body, auth: 'admin' }),
   deleteStation: (id: string) => request<{ ok: true }>(`/stations/${id}`, { method: 'DELETE', auth: 'admin' }),
@@ -101,36 +121,54 @@ export const api = {
   // --- Printers ---
   getPrinters: () => request<{ printers: any[] }>('/printers'),
   createPrinter: (body: any) => request<{ printer: any }>('/printers', { method: 'POST', body, auth: 'admin' }),
+  updatePrinter: (id: string, body: { name?: string; ipAddress?: string; port?: number }) =>
+    request<{ printer: any }>(`/printers/${id}`, { method: 'PATCH', body, auth: 'admin' }),
   deletePrinter: (id: string) => request<{ ok: true }>(`/printers/${id}`, { method: 'DELETE', auth: 'admin' }),
 
   // --- Config ---
   getConfig: () => request<{ config: any }>('/config'),
   updateConfig: (body: any) => request<{ config: any }>('/config', { method: 'PATCH', body, auth: 'admin' }),
 
-  // --- Menu ---
+  // --- Menu (a station marks its own items out of stock; Packing & Pass and Admin any) ---
   getMenu: () => request<{ items: any[] }>('/menu'),
   setStock: (itemId: string, inStock: boolean) =>
-    request<{ item: any }>(`/menu/${itemId}/stock`, { method: 'PATCH', body: { inStock }, auth: 'admin' }),
+    request<{ item: any }>(`/menu/${itemId}/stock`, { method: 'PATCH', body: { inStock } }),
 
   // --- Orders ---
   getOrders: (params?: { filter?: string; q?: string }) => {
     const qs = new URLSearchParams(params as Record<string, string>).toString();
     return request<{ orders: any[] }>(`/orders${qs ? `?${qs}` : ''}`, { auth: 'device' });
   },
+  getOrder: (orderId: string) => request<{ order: any }>(`/orders/${orderId}`),
   prepareItem: (orderId: string, itemId: string) =>
-    request(`/orders/${orderId}/items/${itemId}/prepare`, { method: 'POST', auth: 'device' }),
+    request<ServerOrderAction>(`/orders/${orderId}/items/${itemId}/prepare`, { method: 'POST', auth: 'device' }),
+  undoPrepare: (orderId: string, itemId: string) =>
+    request<ServerOrderAction>(`/orders/${orderId}/items/${itemId}/undo-prepare`, { method: 'POST', auth: 'device' }),
   packItem: (orderId: string, itemId: string) =>
-    request(`/orders/${orderId}/items/${itemId}/pack`, { method: 'POST', auth: 'device' }),
+    request<ServerOrderAction>(`/orders/${orderId}/items/${itemId}/pack`, { method: 'POST', auth: 'device' }),
   undoPack: (orderId: string, itemId: string) =>
-    request(`/orders/${orderId}/items/${itemId}/undo-pack`, { method: 'POST', auth: 'device' }),
+    request<ServerOrderAction>(`/orders/${orderId}/items/${itemId}/undo-pack`, { method: 'POST', auth: 'device' }),
   recallItem: (orderId: string, itemId: string) =>
-    request(`/orders/${orderId}/items/${itemId}/recall`, { method: 'POST', auth: 'device' }),
+    request<ServerOrderAction>(`/orders/${orderId}/items/${itemId}/recall`, { method: 'POST', auth: 'device' }),
   recallEntireOrder: (orderId: string) =>
-    request(`/orders/${orderId}/recall-entire-order`, { method: 'POST', auth: 'device' }),
-  reprintLabel: (orderId: string, itemId: string) =>
-    request(`/orders/${orderId}/items/${itemId}/reprint-label`, { method: 'POST', auth: 'device' }),
-  reprintDocket: (orderId: string) =>
-    request(`/orders/${orderId}/reprint-docket`, { method: 'POST', auth: 'device' }),
+    request<{ order: any }>(`/orders/${orderId}/recall-entire-order`, { method: 'POST', auth: 'device' }),
+  reprintLabel: (orderId: string, itemId: string, unit?: number) =>
+    request<{ ok: true; printJobId: string }>(`/orders/${orderId}/items/${itemId}/reprint-label`, { method: 'POST', body: { unit }, auth: 'device' }),
+  reprintTicket: (orderId: string) =>
+    request<{ ok: true; printJobId: string }>(`/orders/${orderId}/reprint-ticket`, { method: 'POST', auth: 'device' }),
+  /** Admin-only test orders, refused unless the server allows them (ALLOW_TEST_ORDERS). */
+  createTestOrder: (body: { customerName: string; tableNumber?: string; comboName?: string; notes?: string; items: { name: string; category: string; quantity?: number; modifiers?: string[] }[] }) =>
+    request<{ order: any }>('/orders/test', { method: 'POST', body, auth: 'admin' }),
+
+  // --- Print queue (the Packing & Pass app) ---
+  listPrintJobs: (statuses?: string[]) =>
+    request<{ jobs: any[] }>(`/print-jobs${statuses && statuses.length ? `?status=${statuses.join(',')}` : ''}`),
+  claimPrintJobs: (limit = 10) =>
+    request<{ reclaimed: any[]; jobs: any[] }>('/print-jobs/claim', { method: 'POST', body: { limit }, auth: 'device' }),
+  reportPrintResult: (jobId: string, outcome: 'printed' | 'failed' | 'uncertain', error?: string) =>
+    request<{ job: any }>(`/print-jobs/${jobId}/result`, { method: 'POST', body: { outcome, error }, auth: 'device' }),
+  resolvePrintJob: (jobId: string, action: 'reprint' | 'mark_printed') =>
+    request<{ job: any }>(`/print-jobs/${jobId}/resolve`, { method: 'POST', body: { action }, auth: 'device' }),
 
   // --- Audit ---
   getAuditLogs: (q?: string) => request<{ logs: any[] }>(`/audit${q ? `?q=${encodeURIComponent(q)}` : ''}`, { auth: 'admin' }),
