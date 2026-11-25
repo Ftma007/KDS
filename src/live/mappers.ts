@@ -34,7 +34,7 @@ export function mapOrder(o: any): Order {
   return {
     id: String(o._id),
     displayId: o.displayId,
-    source: o.source === 'Online Store' ? 'Online Store' : 'Square POS',
+    source: o.source || 'Square POS',
     customerName: o.customerName,
     // Real orders carry just the number; the approved screens read "Table 4".
     tableNumber: o.tableNumber ? (/^\d+$/.test(String(o.tableNumber).trim()) ? `Table ${String(o.tableNumber).trim()}` : String(o.tableNumber)) : undefined,

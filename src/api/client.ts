@@ -87,6 +87,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return data as T;
 }
 
+export type SquareStatus = {
+  configured: boolean; configProblem?: string | null; connected: boolean; environment?: string;
+  businessName?: string; locationId?: string | null; locationName?: string | null;
+  locations?: { id: string; name: string }[]; expiresAt?: string;
+};
+
 type ServerOrderAction = { order: any; item?: any; pendingActionId?: string; undoSeconds?: number };
 
 export const api = {
@@ -169,6 +175,13 @@ export const api = {
     request<{ job: any }>(`/print-jobs/${jobId}/result`, { method: 'POST', body: { outcome, error }, auth: 'device' }),
   resolvePrintJob: (jobId: string, action: 'reprint' | 'mark_printed') =>
     request<{ job: any }>(`/print-jobs/${jobId}/resolve`, { method: 'POST', body: { action }, auth: 'device' }),
+
+  // --- Square (Admin) ---
+  squareStatus: () => request<SquareStatus>('/square/status', { auth: 'admin' }),
+  squareConnectLink: () => request<{ url: string; expiresInMinutes: number }>('/square/oauth/ticket', { method: 'POST', auth: 'admin' }),
+  squareSetLocation: (locationId: string) => request<{ ok: true }>('/square/location', { method: 'POST', body: { locationId }, auth: 'admin' }),
+  squareImportMenu: () => request<{ imported: number; categories: string[]; newCategories: number }>('/square/import-menu', { method: 'POST', auth: 'admin' }),
+  squareDisconnect: () => request<{ ok: true }>('/square/disconnect', { method: 'POST', auth: 'admin' }),
 
   // --- Audit ---
   getAuditLogs: (q?: string) => request<{ logs: any[] }>(`/audit${q ? `?q=${encodeURIComponent(q)}` : ''}`, { auth: 'admin' }),

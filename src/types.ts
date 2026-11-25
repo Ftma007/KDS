@@ -38,7 +38,7 @@ export interface OrderItem {
 export interface Order {
   id: string; // unique key. Demo: SQ-1001. Live: the server's id
   displayId?: string; // the number shown on screen when it differs from id (live: Square's ticket number)
-  source: 'Square POS' | 'Online Store';
+  source: string; // e.g. Square POS, Online Store, Uber Eats
   customerName: string;
   tableNumber?: string;
   createdAt: string;

@@ -11,6 +11,18 @@ interface AdminConfigProps {
   onPrinterDelete: (printerId: string) => void;
   venueName?: string | null; // live only
   onVenueNameSave?: (name: string) => void; // live only: shown only when provided
+  square?: {
+    status: { configured: boolean; configProblem?: string | null; connected: boolean; environment?: string; businessName?: string;
+      locationId?: string | null; locationName?: string | null; locations?: { id: string; name: string }[] } | null;
+    busy: boolean;
+    link: string | null;
+    message: string | null;
+    onConnect: () => void;
+    onRefresh: () => void;
+    onImport: () => void;
+    onDisconnect: () => void;
+    onSetLocation: (id: string) => void;
+  }; // live only
 }
 
 export const AdminConfig: React.FC<AdminConfigProps> = ({
@@ -21,6 +33,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
   onPrinterAdd,
   venueName,
   onVenueNameSave,
+  square,
   onPrinterDelete,
 }) => {
   const [stations, setStations] = React.useState<KDSStation[]>(config.stations);
@@ -157,6 +170,81 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
       {successMessage && (
         <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3.5 rounded-xl text-xs font-mono text-center shadow-xs font-bold">
           {successMessage}
+        </div>
+      )}
+
+      {/* Square connection (live system only) */}
+      {square && (
+        <div className="bg-white border border-stone-200 rounded-xl p-5 space-y-3 shadow-sm" id="square-card">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-display font-bold text-stone-850 uppercase tracking-wide">Square</h3>
+            <span className={`text-[9px] font-mono font-black px-1.5 py-0.5 rounded border uppercase ${
+              square.status?.connected ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-stone-100 text-stone-600 border-stone-300'
+            }`}>
+              {square.status?.connected ? `Connected${square.status.environment === 'sandbox' ? ' (sandbox)' : ''}` : 'Not connected'}
+            </span>
+          </div>
+
+          {square.status && !square.status.configured && (
+            <p className="text-xs text-rose-700 font-mono" id="square-config-problem">Server not ready for Square: {square.status.configProblem}</p>
+          )}
+
+          {square.status?.connected ? (
+            <>
+              <p className="text-xs text-stone-600">
+                Orders come from <strong>{square.status.businessName || 'your Square business'}</strong>
+                {square.status.locationName ? <> at <strong>{square.status.locationName}</strong></> : null}.
+              </p>
+              {!square.status.locationId && square.status.locations && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono font-bold text-stone-500 uppercase">Location:</span>
+                  <select
+                    id="select-square-location"
+                    defaultValue=""
+                    onChange={(e) => e.target.value && square.onSetLocation(e.target.value)}
+                    className="bg-white border border-stone-200 text-xs rounded-lg px-2.5 py-1 text-stone-700 font-semibold"
+                  >
+                    <option value="">Choose this venue's location</option>
+                    {square.status.locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button id="btn-square-import-menu" type="button" disabled={square.busy} onClick={square.onImport}
+                  className="px-3 py-2 rounded-lg bg-[#3F1C1A] text-[#EDD7A1] text-xs font-tech font-bold uppercase tracking-wider cursor-pointer disabled:opacity-40">
+                  Import menu from Square
+                </button>
+                <button id="btn-square-disconnect" type="button" disabled={square.busy} onClick={square.onDisconnect}
+                  className="px-3 py-2 rounded-lg border border-stone-300 text-xs font-tech font-bold uppercase tracking-wider text-stone-600 cursor-pointer disabled:opacity-40">
+                  Disconnect
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-stone-600">Connect this venue's Square business so its orders come straight to the screens. You'll sign in on Square's own page and choose the business.</p>
+              <div className="flex flex-wrap gap-2">
+                <button id="btn-square-connect" type="button" disabled={square.busy || !square.status?.configured} onClick={square.onConnect}
+                  className="px-3 py-2 rounded-lg bg-[#3F1C1A] text-[#EDD7A1] text-xs font-tech font-bold uppercase tracking-wider cursor-pointer disabled:opacity-40">
+                  Connect Square
+                </button>
+                <button id="btn-square-refresh" type="button" disabled={square.busy} onClick={square.onRefresh}
+                  className="px-3 py-2 rounded-lg border border-stone-300 text-xs font-tech font-bold uppercase tracking-wider text-stone-600 cursor-pointer disabled:opacity-40">
+                  Check connection
+                </button>
+              </div>
+              {square.link && (
+                <div className="text-[11px] text-stone-600 bg-stone-50 border border-stone-200 rounded-lg p-2.5 space-y-1.5" id="square-link-box">
+                  <p>If Square didn't open, open this link in any browser (it works once, for 10 minutes), then press Check connection:</p>
+                  <div className="flex gap-2 items-center">
+                    <input readOnly value={square.link} className="flex-1 bg-white border border-stone-200 rounded px-2 py-1 font-mono text-[10px]" onFocus={(e) => e.target.select()} />
+                    <button type="button" onClick={() => navigator.clipboard?.writeText(square.link!)} className="px-2 py-1 rounded border border-stone-300 text-[10px] font-bold uppercase cursor-pointer">Copy</button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          {square.message && <p className="text-xs font-mono text-stone-700" id="square-message">{square.message}</p>}
         </div>
       )}
 
@@ -424,6 +512,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
                       onChange={(e) => handleRoutingChange(category, e.target.value)}
                       className="bg-white border border-stone-200 text-xs rounded-lg px-2.5 py-1 text-stone-700 focus:outline-hidden focus:border-brand-orange font-semibold"
                     >
+                      {routing[category] === '' && <option value="">Not set</option>}
                       {stations.map(st => (
                         <option key={st.id} value={st.id}>{st.name}</option>
                       ))}

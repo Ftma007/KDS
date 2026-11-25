@@ -1,6 +1,6 @@
 import React from 'react';
 import { Order, OrderItem, KDSStation, Printer, PrintJob, AuditLog, KDSConfig, UserRole, MenuItem, PendingBump } from './types';
-import { api, setAdminToken, setDeviceCredential, getDeviceCredential, ApiError, BACKEND_CONFIGURED, checkServerHealth } from './api/client';
+import { api, setAdminToken, setDeviceCredential, getDeviceCredential, ApiError, BACKEND_CONFIGURED, checkServerHealth, SquareStatus } from './api/client';
 import { mapStations, mapMenuItem, mapOrder, mapPrinter, applyServerConfig, mapAuditLog } from './live/mappers';
 import { connectSocket, getSocket } from './api/socket';
 import {
@@ -281,6 +281,11 @@ export default function App() {
 
   const upsertLiveOrder = (serverOrder: any) => {
     if (!serverOrder) return;
+    if (serverOrder.cancelledAt) { // cancelled in Square: off every screen
+      const cid = String(serverOrder._id);
+      setOrders(prev => prev.filter(x => x.id !== cid));
+      return;
+    }
     const o = mapOrder(serverOrder);
     setOrders(prev => {
       const i = prev.findIndex(x => x.id === o.id);
@@ -359,6 +364,45 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveVenueId]);
+
+  // Live: Square connection, managed from Admin.
+  const [squareStatus, setSquareStatus] = React.useState<SquareStatus | null>(null);
+  const [squareBusy, setSquareBusy] = React.useState(false);
+  const [squareLink, setSquareLink] = React.useState<string | null>(null);
+  const [squareMessage, setSquareMessage] = React.useState<string | null>(null);
+  const refreshSquare = async () => {
+    try { setSquareStatus(await api.squareStatus()); if (squareLink) setSquareLink(null); }
+    catch (err) { setSquareMessage(liveErrorMessage(err)); }
+  };
+  React.useEffect(() => {
+    if (BACKEND_CONFIGURED && isAdminMode && singleViewTab === 'admin') refreshSquare();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdminMode, singleViewTab]);
+  const squareRun = async (fn: () => Promise<void>) => {
+    setSquareBusy(true); setSquareMessage(null);
+    try { await fn(); } catch (err) { setSquareMessage(liveErrorMessage(err)); } finally { setSquareBusy(false); }
+  };
+  const squarePanel = BACKEND_CONFIGURED ? {
+    status: squareStatus, busy: squareBusy, link: squareLink, message: squareMessage,
+    onConnect: () => squareRun(async () => {
+      const { url } = await api.squareConnectLink();
+      setSquareLink(url);
+      window.open(url, '_blank');
+    }),
+    onRefresh: () => squareRun(refreshSquare),
+    onImport: () => squareRun(async () => {
+      const r = await api.squareImportMenu();
+      setSquareMessage(`${r.imported} menu items imported.${r.newCategories ? ` ${r.newCategories} new categories need a station in Category Routing.` : ''}`);
+      await loadLiveData(false);
+    }),
+    onDisconnect: () => squareRun(async () => {
+      if (!window.confirm('Disconnect Square? New orders will stop coming to the screens until it is connected again.')) return;
+      await api.squareDisconnect();
+      setSquareMessage('Square disconnected.');
+      await refreshSquare();
+    }),
+    onSetLocation: (id: string) => squareRun(async () => { await api.squareSetLocation(id); await refreshSquare(); }),
+  } : undefined;
 
   // Live: the audit log tab shows the server's record (oldest first; the screen shows newest at the top).
   React.useEffect(() => {
@@ -2059,6 +2103,7 @@ export default function App() {
                   onPrinterAdd={handlePrinterAdd}
                   onPrinterDelete={handlePrinterDelete}
                   venueName={BACKEND_CONFIGURED ? venueName : undefined}
+                  square={squarePanel}
                   onVenueNameSave={BACKEND_CONFIGURED ? (name: string) => {
                     liveRun(api.updateConfig({ venueName: name })).then(r => {
                       if (r) { setVenueName((r as any).venue?.name || name); showLiveNotice('Venue name saved.'); }
