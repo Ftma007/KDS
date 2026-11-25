@@ -1,6 +1,6 @@
 // Turns the server's data into exactly the shapes the approved screens already
 // use, so the screens themselves don't change between demo and live.
-import { Order, OrderItem, KDSStation, MenuItem, Printer, KDSConfig } from '../types';
+import { Order, OrderItem, KDSStation, MenuItem, Printer, KDSConfig, AuditLog } from '../types';
 
 // The "Border glow theme" choices in Admin. The server's first-time setup stored
 // hex colours, so anything that isn't one of these names gets one by position.
@@ -79,5 +79,20 @@ export function applyServerConfig(prev: KDSConfig, stations: KDSStation[], serve
     displayOrder: stations.map((s) => s.id),
     categoryRouting: serverConfig?.categoryRouting || {},
     undoGracePeriodSeconds: grace,
+  };
+}
+
+/** The server's audit record (who did what: Admin or a station screen, never a person). */
+export function mapAuditLog(l: any): AuditLog {
+  const isAdmin = l.actorType === 'admin';
+  return {
+    id: String(l._id),
+    timestamp: l.timestamp || l.createdAt,
+    userId: isAdmin ? 'Admin' : l.stationName || 'Station screen',
+    userRole: isAdmin ? 'administrator' : 'station_device',
+    action: l.action,
+    station: l.stationName || undefined,
+    orderId: l.orderId ? String(l.orderId) : undefined,
+    details: l.details,
   };
 }

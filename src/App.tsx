@@ -1,7 +1,7 @@
 import React from 'react';
 import { Order, OrderItem, KDSStation, Printer, PrintJob, AuditLog, KDSConfig, UserRole, MenuItem, PendingBump } from './types';
 import { api, setAdminToken, setDeviceCredential, getDeviceCredential, ApiError, BACKEND_CONFIGURED, checkServerHealth } from './api/client';
-import { mapStations, mapMenuItem, mapOrder, mapPrinter, applyServerConfig } from './live/mappers';
+import { mapStations, mapMenuItem, mapOrder, mapPrinter, applyServerConfig, mapAuditLog } from './live/mappers';
 import { connectSocket, getSocket } from './api/socket';
 import {
   INITIAL_MENU,
@@ -111,7 +111,8 @@ export default function App() {
   // 5-Second Undo Grace Period Buffer State
   const [pendingBumps, setPendingBumps] = React.useState<PendingBump[]>([]);
 
-  const [auditLogs, setAuditLogs] = React.useState<AuditLog[]>([
+  // Live builds show the server's real audit record (loaded in the log tab); the demo keeps its sample entries.
+  const [auditLogs, setAuditLogs] = React.useState<AuditLog[]>(BACKEND_CONFIGURED ? [] : [
     {
       id: 'log-init',
       timestamp: new Date(Date.now() - 30 * 60000).toISOString(),
@@ -357,6 +358,15 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveVenueId]);
+
+  // Live: the audit log tab shows the server's record (oldest first; the screen shows newest at the top).
+  React.useEffect(() => {
+    if (!BACKEND_CONFIGURED || !isAdminMode || singleViewTab !== 'logs') return;
+    api.getAuditLogs()
+      .then(r => setAuditLogs(r.logs.map(mapAuditLog).reverse()))
+      .catch(err => showLiveNotice(liveErrorMessage(err)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdminMode, singleViewTab]);
 
   // Live actions: the server decides; the screen shows the result and the undo countdown.
   const liveRun = async <T,>(p: Promise<T>): Promise<T | null> => {
@@ -1706,11 +1716,18 @@ export default function App() {
                   <Play className="h-4 w-4 text-brand-orange" />
                   <span className="text-xs font-mono font-bold text-stone-750 tracking-widest">POS REGISTER</span>
                 </div>
+                {BACKEND_CONFIGURED ? (
+                <div className="bg-stone-50 border border-stone-200 rounded-xl p-6 text-center space-y-1" id="live-orders-from-square">
+                  <p className="text-xs font-tech font-bold uppercase tracking-wider text-stone-700">Orders come in from Square</p>
+                  <p className="text-[11px] text-stone-500">The order entry simulator is part of the demo only.</p>
+                </div>
+                ) : (
                 <POSSimulator
                   menuItems={menuItems}
                   onOrderSubmit={handleOrderSubmit}
                   isOffline={isOffline}
                 />
+                )}
               </div>
 
               {/* Virtual Printer Tapes Mini-Feed */}
@@ -1883,13 +1900,18 @@ export default function App() {
                 />
               )}
 
-              {singleViewTab === 'pos' && (
+              {singleViewTab === 'pos' && (BACKEND_CONFIGURED ? (
+                <div className="bg-stone-50 border border-stone-200 rounded-xl p-6 text-center space-y-1" id="live-orders-from-square">
+                  <p className="text-xs font-tech font-bold uppercase tracking-wider text-stone-700">Orders come in from Square</p>
+                  <p className="text-[11px] text-stone-500">The order entry simulator is part of the demo only.</p>
+                </div>
+              ) : (
                 <POSSimulator
                   menuItems={menuItems}
                   onOrderSubmit={handleOrderSubmit}
                   isOffline={isOffline}
                 />
-              )}
+              ))}
 
               {singleViewTab === 'kds' && (
                 <div className="space-y-4">
