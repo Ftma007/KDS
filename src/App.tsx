@@ -45,6 +45,8 @@ import {
   Undo2,
   ShieldCheck,
   Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 function AdminLockNotice({ onLoginClick, label }: { onLoginClick: () => void; label: string }) {
@@ -137,6 +139,9 @@ export default function App() {
   const [showAdminLogin, setShowAdminLogin] = React.useState(false);
   const [adminEmailInput, setAdminEmailInput] = React.useState('');
   const [adminPasswordInput, setAdminPasswordInput] = React.useState('');
+  const [showAdminPassword, setShowAdminPassword] = React.useState(false);
+  // The password always starts hidden each time the login opens.
+  React.useEffect(() => { if (!showAdminLogin) setShowAdminPassword(false); }, [showAdminLogin]);
   const [adminLoginError, setAdminLoginError] = React.useState<string | null>(null);
   const currentUserRole: UserRole = isAdminMode ? 'administrator' : 'station_device';
 
@@ -1265,7 +1270,8 @@ export default function App() {
             <p className="text-xs text-stone-500">
               Kitchen staff never log in. Admin login is only for configuration, stock, and audit access.
             </p>
-            {!isBackendConnected && (
+            {/* Demo builds only: the live app always checks the login with the server and never shows demo details. */}
+            {!BACKEND_CONFIGURED && !isBackendConnected && (
               <p className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-2">
                 Backend not connected — using local demo login. Use: admin@sufra.example / ChangeMe123!
               </p>
@@ -1275,19 +1281,31 @@ export default function App() {
               type="email"
               value={adminEmailInput}
               onChange={(e) => setAdminEmailInput(e.target.value)}
-              placeholder="admin@sufra.example"
+              placeholder={BACKEND_CONFIGURED ? 'Email' : 'admin@sufra.example'}
               className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-orange"
               autoFocus
             />
+            <div className="relative">
             <input
               id="input-admin-password"
-              type="password"
+              type={showAdminPassword ? 'text' : 'password'}
               value={adminPasswordInput}
               onChange={(e) => setAdminPasswordInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAdminLoginAttempt()}
               placeholder="Password"
-              className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-orange"
+              className="w-full border border-stone-300 rounded-lg pl-3 pr-10 py-2 text-sm font-mono focus:outline-none focus:border-brand-orange"
             />
+            <button
+              type="button"
+              id="btn-toggle-admin-password"
+              onClick={() => setShowAdminPassword(v => !v)}
+              aria-label={showAdminPassword ? 'Hide password' : 'Show password'}
+              title={showAdminPassword ? 'Hide password' : 'Show password'}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-700 cursor-pointer"
+            >
+              {showAdminPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+            </div>
             {adminLoginError && <p className="text-xs text-rose-600 font-bold">{adminLoginError}</p>}
             <div className="flex gap-2">
               <button
