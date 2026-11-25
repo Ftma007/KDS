@@ -111,6 +111,8 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
   onConfigChange,
 }) => {
   const isPackingStation = station.id === 'st-packing';
+  // Admin option per station. Packing & Pass always sees every item and order.
+  const showOtherStationItems = isPackingStation || station.showOtherStationItems !== false;
   const isStationLabelPrintingEnabled = station.labelPrintingEnabled ?? false;
 
   const [kdsTheme, setKdsTheme] = React.useState<'dark' | 'light'>('dark');
@@ -175,7 +177,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
     if (order.status === 'completed') return false;
     if (isPackingStation) return true; // order-level completion still governs Packing & Pass
     const hasAnyItemForStation = order.items.some(i => i.stationId === station.id);
-    if (!hasAnyItemForStation) return true; // nothing routed here — still shown faded for cross-station context
+    if (!hasAnyItemForStation) return showOtherStationItems; // nothing routed here: shown faded for context only when the station's option is On
     return stationHasOutstandingWork(order); // clears once this station's own work here is actually done
   });
   const completedOrders = orders.filter(order => order.status === 'completed');
@@ -433,7 +435,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
             )}
           </button>
 
-          {/* Quick Item Stock Control ("86 Item") */}
+          {/* Out of stock control */}
           <button
             id="btn-kds-quick-stock"
             onClick={() => setShowStockModal(true)}
@@ -443,7 +445,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                 : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
             }`}
           >
-            <PackageX className="h-4 w-4 text-amber-400" /> 86 / ITEM STOCK
+            <PackageX className="h-4 w-4 text-amber-400" /> OUT OF STOCK
           </button>
 
           {/* Theme switcher */}
@@ -856,7 +858,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
             <div className="flex items-center gap-2 mb-2">
               <PackageX className="h-6 w-6 text-[#E5A330]" />
               <h2 className="text-lg font-black uppercase text-[#EDD7A1] tracking-wide">
-                Quick 86 / Stock Control
+                Out of Stock
               </h2>
             </div>
             <p className="text-xs text-[#EDD7A1]/70 mb-4 font-mono">
@@ -867,7 +869,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
               <Search className="h-4 w-4 absolute left-3 top-2.5 text-[#E5A330]" />
               <input
                 type="text"
-                placeholder="Search Sufra menu item..."
+                placeholder="Search menu items..."
                 value={stockSearchQuery}
                 onChange={e => setStockSearchQuery(e.target.value)}
                 className="w-full bg-[#2D1412] border border-[#454024] rounded-xl pl-9 pr-4 py-2 text-xs font-mono text-[#EDD7A1] focus:outline-none focus:border-[#E5A330]"
@@ -876,6 +878,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
 
             <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
               {menuItems
+                .filter(i => isPackingStation || i.stationId === station.id) // each station: only its own items; Packing & Pass: all
                 .filter(i => i.name.toLowerCase().includes(stockSearchQuery.toLowerCase()) || i.category.toLowerCase().includes(stockSearchQuery.toLowerCase()))
                 .map(item => (
                   <div
@@ -902,7 +905,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                     >
                       {item.inStock ? (
                         <>
-                          <PackageX className="h-3.5 w-3.5 text-rose-400" /> MARK 86 (OUT)
+                          <PackageX className="h-3.5 w-3.5 text-rose-400" /> MARK OUT OF STOCK
                         </>
                       ) : (
                         <>
@@ -976,11 +979,14 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
               const ticketHeaderColor = getTicketHeaderColor(order.createdAt, kdsTheme === 'dark');
               const elapsedMins = getDurationMinutes(order.createdAt);
               
+              // Items this screen draws: all of them, or only its own when the option is Off
+              const visibleItems = showOtherStationItems ? order.items : order.items.filter(i => i.stationId === station.id);
+
               // Group order items by stationId
               const stationGroups: { station: KDSStation; items: OrderItem[] }[] = [];
               const groupMap = new Map<string, OrderItem[]>();
 
-              order.items.forEach((item) => {
+              visibleItems.forEach((item) => {
                 if (!groupMap.has(item.stationId)) {
                   groupMap.set(item.stationId, []);
                 }
@@ -1137,7 +1143,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                               ? 'bg-[#1C1716] border-[#E5A330]/50 shadow-md' 
                               : 'bg-amber-50/60 border-amber-200 shadow-sm'
                           }`}>
-                            {[...order.items]
+                            {[...visibleItems]
                               .sort((a, b) => {
                                 if (a.stationId === station.id) return -1;
                                 if (b.stationId === station.id) return 1;
@@ -1231,23 +1237,23 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                                               className="w-full sm:w-auto px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 border border-emerald-500 text-white font-tech text-xs font-black rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md active:scale-95 uppercase tracking-wider"
                                             >
                                               <Check className="h-4 w-4 stroke-[3]" />
-                                              {item.quantity - item.completedQuantity > 1 
-                                                ? `BUMP ONE (${item.completedQuantity + 1}/${item.quantity})`
-                                                : `BUMP (${item.quantity}/${item.quantity})`}
+                                              {item.quantity > 1
+                                                ? `BUMP ONE · ${item.completedQuantity} OF ${item.quantity} DONE`
+                                                : `BUMP`}
                                             </button>
                                           ) : (
                                             <span className="text-[10px] font-tech font-extrabold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg inline-flex items-center gap-1 uppercase tracking-wider">
-                                              <Check className="h-3 w-3" /> PREPARED ({item.completedQuantity}/${item.quantity})
+                                              <Check className="h-3 w-3" /> PREPARED ({item.completedQuantity}/{item.quantity})
                                             </span>
                                           )
                                         ) : (
                                           isPrepCompleted ? (
                                             <span className="text-[10px] font-tech font-bold text-emerald-400/80 bg-emerald-500/5 border border-emerald-500/10 px-2 py-1 rounded-lg inline-flex items-center gap-1 uppercase tracking-wider">
-                                              <Check className="h-3 w-3" /> PREPARED ({item.completedQuantity}/${item.quantity})
+                                              <Check className="h-3 w-3" /> PREPARED ({item.completedQuantity}/{item.quantity})
                                             </span>
                                           ) : (
                                             <span className="text-[10px] font-tech font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-lg inline-flex items-center gap-1 animate-pulse uppercase tracking-wider">
-                                              <Clock className="h-3 w-3" /> COOKING ({item.completedQuantity}/${item.quantity})
+                                              <Clock className="h-3 w-3" /> COOKING ({item.completedQuantity}/{item.quantity})
                                             </span>
                                           )
                                         )
@@ -1258,29 +1264,18 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                                             onClick={() => onPackingItemBump?.(order.id, item.id)}
                                             className="w-full sm:w-auto px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 text-white font-tech text-xs font-black rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md active:scale-95 uppercase tracking-wider"
                                           >
-                                            {isStationLabelPrintingEnabled ? (
-                                              <>
-                                                <Printer className="h-4 w-4" />
-                                                {item.quantity > 1 
-                                                  ? `PACK & LABEL (${item.packedQuantity + 1}/${item.quantity})`
-                                                  : `PACK & PRINT LABEL`}
-                                              </>
-                                            ) : (
-                                              <>
-                                                <Check className="h-4 w-4 stroke-[3]" />
-                                                {item.quantity > 1 
-                                                  ? `PACK ITEM (${item.packedQuantity + 1}/${item.quantity})`
-                                                  : `PACK ITEM`}
-                                              </>
-                                            )}
+                                            <Check className="h-4 w-4 stroke-[3]" />
+                                            {item.quantity > 1
+                                              ? `PACK ONE · ${item.packedQuantity} OF ${item.quantity} DONE`
+                                              : `PACK ITEM`}
                                           </button>
                                         ) : isPackedCompleted ? (
                                           <span className="text-[10px] font-tech font-extrabold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg inline-flex items-center gap-1 uppercase tracking-wider">
-                                            <Check className="h-3 w-3" /> PACKED ({item.packedQuantity}/${item.quantity})
+                                            <Check className="h-3 w-3" /> PACKED ({item.packedQuantity}/{item.quantity})
                                           </span>
                                         ) : (
                                           <span className="text-[10px] font-tech font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-lg inline-flex items-center gap-1 animate-pulse uppercase tracking-wider">
-                                            <Clock className="h-3 w-3" /> WAITING PREP ({item.completedQuantity}/${item.quantity})
+                                            <Clock className="h-3 w-3" /> WAITING PREP ({item.completedQuantity}/{item.quantity})
                                           </span>
                                         )
                                       )}
@@ -1392,23 +1387,23 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                                                   className="w-full sm:w-auto px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 border border-emerald-500 text-white font-tech text-xs font-black rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md active:scale-95 uppercase tracking-wider"
                                                 >
                                                   <Check className="h-4 w-4 stroke-[3]" />
-                                                  {item.quantity - item.completedQuantity > 1 
-                                                    ? `BUMP ONE (${item.completedQuantity + 1}/${item.quantity})`
-                                                    : `BUMP (${item.quantity}/${item.quantity})`}
+                                                  {item.quantity > 1
+                                                    ? `BUMP ONE · ${item.completedQuantity} OF ${item.quantity} DONE`
+                                                    : `BUMP`}
                                                 </button>
                                               ) : (
                                                 <span className="text-[10px] font-tech font-extrabold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg inline-flex items-center gap-1 uppercase tracking-wider">
-                                                  <Check className="h-3 w-3" /> PREPARED ({item.completedQuantity}/${item.quantity})
+                                                  <Check className="h-3 w-3" /> PREPARED ({item.completedQuantity}/{item.quantity})
                                                 </span>
                                               )
                                             ) : (
                                               isPrepCompleted ? (
                                                 <span className="text-[10px] font-tech font-bold text-emerald-400/80 bg-emerald-500/5 border border-emerald-500/10 px-2 py-1 rounded-lg inline-flex items-center gap-1 uppercase tracking-wider">
-                                                  <Check className="h-3 w-3" /> PREPARED ({item.completedQuantity}/${item.quantity})
+                                                  <Check className="h-3 w-3" /> PREPARED ({item.completedQuantity}/{item.quantity})
                                                 </span>
                                               ) : (
                                                 <span className="text-[10px] font-tech font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-lg inline-flex items-center gap-1 animate-pulse uppercase tracking-wider">
-                                                  <Clock className="h-3 w-3" /> COOKING ({item.completedQuantity}/${item.quantity})
+                                                  <Clock className="h-3 w-3" /> COOKING ({item.completedQuantity}/{item.quantity})
                                                 </span>
                                               )
                                             )
@@ -1420,29 +1415,18 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                                                 onClick={() => onPackingItemBump?.(order.id, item.id)}
                                                 className="w-full sm:w-auto px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 text-white font-tech text-xs font-black rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md active:scale-95 uppercase tracking-wider"
                                               >
-                                                {isStationLabelPrintingEnabled ? (
-                                                  <>
-                                                    <Printer className="h-4 w-4" />
-                                                    {item.quantity > 1 
-                                                      ? `PACK & LABEL (${item.packedQuantity + 1}/${item.quantity})`
-                                                      : `PACK & PRINT LABEL`}
-                                                  </>
-                                                ) : (
-                                                  <>
-                                                    <Check className="h-4 w-4 stroke-[3]" />
-                                                    {item.quantity > 1 
-                                                      ? `PACK ITEM (${item.packedQuantity + 1}/${item.quantity})`
-                                                      : `PACK ITEM`}
-                                                  </>
-                                                )}
+                                                <Check className="h-4 w-4 stroke-[3]" />
+                                                {item.quantity > 1
+                                                  ? `PACK ONE · ${item.packedQuantity} OF ${item.quantity} DONE`
+                                                  : `PACK ITEM`}
                                               </button>
                                             ) : isPackedCompleted ? (
                                               <span className="text-[10px] font-tech font-extrabold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg inline-flex items-center gap-1 uppercase tracking-wider">
-                                                <Check className="h-3 w-3" /> PACKED ({item.packedQuantity}/${item.quantity})
+                                                <Check className="h-3 w-3" /> PACKED ({item.packedQuantity}/{item.quantity})
                                               </span>
                                             ) : (
                                               <span className="text-[10px] font-tech font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-lg inline-flex items-center gap-1 animate-pulse uppercase tracking-wider">
-                                                <Clock className="h-3 w-3" /> WAITING PREP ({item.completedQuantity}/${item.quantity})
+                                                <Clock className="h-3 w-3" /> WAITING PREP ({item.completedQuantity}/{item.quantity})
                                               </span>
                                             )
                                           )}

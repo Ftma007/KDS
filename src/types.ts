@@ -15,6 +15,7 @@ export interface KDSStation {
   color: string; // Tailwind border/bg color code
   printerId: string;
   labelPrintingEnabled?: boolean; // Per-station Label Printing (On/Off)
+  showOtherStationItems?: boolean; // On (default): tickets also show other stations' items for context. Off: only this station's own items and orders. Packing & Pass always sees everything.
 }
 
 export interface OrderItem {

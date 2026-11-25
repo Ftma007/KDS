@@ -1,6 +1,6 @@
 import React from 'react';
 import { KDSConfig, KDSStation, Printer, MenuItem } from '../types';
-import { Settings, Save, AlertTriangle, Plus, Trash2, Printer as PrinterIcon, RefreshCw } from 'lucide-react';
+import { Settings, Save, AlertTriangle, Plus, Trash2, Printer as PrinterIcon, RefreshCw, Eye } from 'lucide-react';
 
 interface AdminConfigProps {
   config: KDSConfig;
@@ -292,6 +292,65 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
                     />
                   </button>
                 </div>
+
+                {/* Per-Station: show other stations' items (Packing & Pass always sees everything) */}
+                {st.id !== 'st-packing' && (() => {
+                  const showOthers = st.showOtherStationItems !== false;
+                  return (
+                    <div className="pt-2 border-t border-stone-200/80 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <Eye className="h-3.5 w-3.5 text-stone-600" />
+                          <span className="text-[11px] font-tech font-bold text-stone-800 uppercase tracking-wide">
+                            Show Other Stations' Items:
+                          </span>
+                          <span className={`text-[9px] font-mono font-black px-1.5 py-0.2 rounded border uppercase ${
+                            showOthers
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                              : 'bg-stone-100 text-stone-600 border-stone-300'
+                          }`}>
+                            {showOthers ? 'ON' : 'OFF'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-stone-500 font-mono mt-0.5">
+                          {showOthers
+                            ? 'Tickets also show other stations\' items, for context.'
+                            : 'This screen shows only its own items and orders.'}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        id={`btn-toggle-show-others-${st.id}`}
+                        onClick={() => {
+                          const updatedShow = !showOthers;
+                          const updatedStations = stations.map(s => s.id === st.id ? { ...s, showOtherStationItems: updatedShow } : s);
+                          setStations(updatedStations);
+                          onConfigChange({
+                            ...config,
+                            stations: updatedStations,
+                            categoryRouting: routing,
+                            displayOrder: updatedStations.map(s => s.id),
+                            undoGracePeriodSeconds: undoGracePeriod,
+                            fadeEmptyStationOrders,
+                          });
+                          setSuccessMessage(`${st.name}: Show other stations' items set to ${updatedShow ? 'ON' : 'OFF'}`);
+                          setTimeout(() => setSuccessMessage(null), 2500);
+                        }}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                          showOthers ? 'bg-emerald-600' : 'bg-stone-300'
+                        }`}
+                        title={`Toggle showing other stations' items for ${st.name}`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                            showOthers ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
             ))}
           </div>

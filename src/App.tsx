@@ -154,6 +154,30 @@ export default function App() {
   }, [activeStationId]);
 
   const [activeWorkspaceTab, setActiveWorkspaceTab] = React.useState<'split' | 'single' | 'dashboard' | 'customer'>('split');
+
+  // --- ANDROID APP: STATION MODE ---
+  // On a kitchen screen the app opens straight into its own station (or the
+  // Customer Display), full screen, with no console. The web version is unchanged.
+  // ?station-mode=1 shows the same view in a browser, for checking only.
+  const isStationApp = React.useMemo(() => {
+    const w = window as any;
+    try {
+      if (w.Capacitor && typeof w.Capacitor.isNativePlatform === 'function' && w.Capacitor.isNativePlatform()) return true;
+    } catch { /* not the Android app */ }
+    if (window.location.protocol === 'https:' && window.location.hostname === 'localhost') return true;
+    return new URLSearchParams(window.location.search).get('station-mode') === '1';
+  }, []);
+  const [isScreenPaired, setIsScreenPaired] = React.useState<boolean>(() => localStorage.getItem('sufra_kds_station_id') !== null);
+  const [screenRole, setScreenRole] = React.useState<'station' | 'customer'>(() =>
+    localStorage.getItem('sufra_kds_screen_role') === 'customer' ? 'customer' : 'station'
+  );
+  const [stationAppConsoleOpen, setStationAppConsoleOpen] = React.useState(false);
+  const [showScreenSetup, setShowScreenSetup] = React.useState(false);
+  const [openSetupAfterLogin, setOpenSetupAfterLogin] = React.useState(false);
+
+  React.useEffect(() => {
+    localStorage.setItem('sufra_kds_screen_role', screenRole);
+  }, [screenRole]);
   const [singleViewTab, setSingleViewTab] = React.useState<'kds' | 'expeditor' | 'pos' | 'printers' | 'stock' | 'admin' | 'logs' | 'dashboard'>('kds');
   
   // Internet status (Section 10: Offline Operation and Recovery)
@@ -166,6 +190,13 @@ export default function App() {
   // once the backend is actually deployed.
   const DEMO_ADMIN_EMAIL = 'admin@sufra.example';
   const DEMO_ADMIN_PASSWORD = 'ChangeMe123!';
+
+  React.useEffect(() => {
+    if (openSetupAfterLogin && isAdminMode) {
+      setOpenSetupAfterLogin(false);
+      setShowScreenSetup(true);
+    }
+  }, [openSetupAfterLogin, isAdminMode]);
 
   const handleAdminLoginAttempt = async () => {
     setAdminLoginError(null);
@@ -655,6 +686,18 @@ export default function App() {
       };
     }));
 
+    // Approved (Milestone 3): each unit's sticker prints at Packing & Pass when a
+    // production station bumps it and the Undo window passes. Undo cancels it.
+    const packingStation = config.stations.find(st => st.id === 'st-packing');
+    const labelJob = packingStation && packingStation.labelPrintingEnabled !== false
+      ? {
+          printerId: packingStation.printerId || 'pr-packing',
+          title: `Sticky Label (${nextCompletedQty}/${targetItem.quantity}): ${targetItem.name}`,
+          content: generateLabelPrintContent(targetOrder, { ...targetItem, completedQuantity: nextCompletedQty }),
+          orderId,
+        }
+      : null;
+
     const graceSeconds = config.undoGracePeriodSeconds;
 
     if (graceSeconds > 0) {
@@ -671,7 +714,7 @@ export default function App() {
           status: previousItemStatus,
         },
         orderPreviousStatus: previousOrderStatus,
-        scheduledPrintJobs: [],
+        scheduledPrintJobs: labelJob ? [labelJob] : [],
         willCompleteOrder: false,
         secondsRemaining: graceSeconds,
         totalSeconds: graceSeconds,
@@ -681,15 +724,16 @@ export default function App() {
 
       writeLog(
         'Item Unit Prepared (Grace Window Active)',
-        `Station prepared unit ${nextCompletedQty}/${targetItem.quantity} of "${targetItem.name}". ${graceSeconds}s Undo grace period active.`,
+        `Station prepared unit ${nextCompletedQty}/${targetItem.quantity} of "${targetItem.name}". ${graceSeconds}s Undo grace period active; its sticker prints at Packing & Pass when the window passes.`,
         'kitchen_staff',
         currentUserRole,
         orderId
       );
     } else {
+      if (labelJob) queuePrintJob(labelJob.printerId, labelJob.title, labelJob.content, labelJob.orderId);
       writeLog(
         'Item Unit Prepared',
-        `Station prepared unit ${nextCompletedQty}/${targetItem.quantity} of "${targetItem.name}". Ready to pack.`,
+        `Station prepared unit ${nextCompletedQty}/${targetItem.quantity} of "${targetItem.name}". Sticker sent to Packing & Pass.`,
         'kitchen_staff',
         currentUserRole,
         orderId
@@ -712,21 +756,10 @@ export default function App() {
     const currentPackedQty = nextPackedQty;
     const totalQty = targetItem.quantity;
 
-    // Generate sticky label content
-    const printedLabelContent = generateLabelPrintContent(targetOrder, { ...targetItem, completedQuantity: nextPackedQty });
-    // FIX: labels are printed physically at Packing & Pass in this deployment —
-    // production stations have no printer hardware at all (Label Printing Off).
-    // Route to the ACTING station's own printer (Packing & Pass), never the
-    // item's owning station's printer, regardless of which station the item
-    // was routed to for preparation.
-    const printedPrinterId = config.stations.find(st => st.id === 'st-packing')?.printerId || 'pr-packing';
-
-    const labelJob = {
-      printerId: printedPrinterId,
-      title: `Packing Sticky Label (${currentPackedQty}/${totalQty}): ${bumpedItemName}`,
-      content: printedLabelContent,
-      orderId,
-    };
+    // Approved (Milestone 3): Packing & Pass only confirms here. The sticker for
+    // this unit already printed after the production bump. Only the last
+    // confirmation of the order queues the one order ticket.
+    void currentPackedQty;
 
     // Check if ALL items in order will now be fully packed
     const updatedItemsPreview = targetOrder.items.map(i => i.id === itemId ? { ...i, packedQuantity: nextPackedQty } : i);
@@ -769,7 +802,7 @@ export default function App() {
           status: previousItemStatus,
         },
         orderPreviousStatus: previousOrderStatus,
-        scheduledPrintJobs: [labelJob, ...(docketJob ? [docketJob] : [])],
+        scheduledPrintJobs: docketJob ? [docketJob] : [],
         willCompleteOrder: allPacked,
         secondsRemaining: graceSeconds,
         totalSeconds: graceSeconds,
@@ -779,7 +812,7 @@ export default function App() {
 
       writeLog(
         'Item Unit Packed (Grace Window Active)',
-        `Packing station packed unit ${nextPackedQty}/${totalQty} of "${bumpedItemName}". Sticky label & docket delayed by ${graceSeconds}s grace window.`,
+        `Packing & Pass confirmed unit ${nextPackedQty}/${totalQty} of "${bumpedItemName}".${docketJob ? ` Order ticket prints after the ${graceSeconds}s grace window.` : ''}`,
         'expeditor',
         currentUserRole,
         orderId
@@ -796,16 +829,13 @@ export default function App() {
         };
       }));
 
-      // Queue sticky label immediately
-      queuePrintJob(labelJob.printerId, labelJob.title, labelJob.content, labelJob.orderId);
-
       if (docketJob) {
         queuePrintJob(docketJob.printerId, docketJob.title, docketJob.content, docketJob.orderId);
       }
 
       writeLog(
         'Item Unit Packed',
-        `Packing station packed unit ${nextPackedQty}/${totalQty} of "${bumpedItemName}". Sticky label printed immediately.`,
+        `Packing & Pass confirmed unit ${nextPackedQty}/${totalQty} of "${bumpedItemName}".${docketJob ? ' Order ticket printed.' : ''}`,
         'expeditor',
         currentUserRole,
         orderId
@@ -1046,6 +1076,216 @@ export default function App() {
     );
   };
 
+  const adminLoginModal = showAdminLogin ? (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" id="admin-login-modal">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm space-y-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-brand-orange" />
+              <h3 className="font-tech font-bold text-sm uppercase tracking-wider text-stone-900">Admin Login</h3>
+            </div>
+            <p className="text-xs text-stone-500">
+              Kitchen staff never log in. Admin login is only for configuration, stock, and audit access.
+            </p>
+            {!isBackendConnected && (
+              <p className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-2">
+                Backend not connected — using local demo login. Use: admin@sufra.example / ChangeMe123!
+              </p>
+            )}
+            <input
+              id="input-admin-email"
+              type="email"
+              value={adminEmailInput}
+              onChange={(e) => setAdminEmailInput(e.target.value)}
+              placeholder="admin@sufra.example"
+              className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-orange"
+              autoFocus
+            />
+            <input
+              id="input-admin-password"
+              type="password"
+              value={adminPasswordInput}
+              onChange={(e) => setAdminPasswordInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdminLoginAttempt()}
+              placeholder="Password"
+              className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-orange"
+            />
+            {adminLoginError && <p className="text-xs text-rose-600 font-bold">{adminLoginError}</p>}
+            <div className="flex gap-2">
+              <button
+                id="btn-admin-login-submit"
+                onClick={handleAdminLoginAttempt}
+                className="flex-1 bg-brand-orange text-white rounded-lg py-2 text-xs font-bold uppercase cursor-pointer hover:bg-orange-600"
+              >
+                Log In
+              </button>
+              <button
+                id="btn-admin-login-cancel"
+                onClick={() => { setShowAdminLogin(false); setAdminEmailInput(''); setAdminPasswordInput(''); setAdminLoginError(null); }}
+                className="flex-1 bg-stone-100 text-stone-700 rounded-lg py-2 text-xs font-bold uppercase cursor-pointer hover:bg-stone-200"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+  ) : null;
+
+  // --- STATION MODE (Android app): only this screen's own station, full screen ---
+  if (isStationApp && !stationAppConsoleOpen) {
+    const pairedStation = config.stations.find(s => s.id === activeStationId);
+    const openScreenSetup = () => {
+      if (isAdminMode) {
+        setShowScreenSetup(true);
+      } else {
+        setOpenSetupAfterLogin(true);
+        setShowAdminLogin(true);
+      }
+    };
+    const pairScreen = (role: 'station' | 'customer', stationId?: string) => {
+      if (role === 'station' && stationId) setActiveStationId(stationId);
+      setScreenRole(role);
+      setIsScreenPaired(true);
+      localStorage.setItem('sufra_kds_station_id', stationId || activeStationId);
+      setShowScreenSetup(false);
+      writeLog(
+        'Screen Paired',
+        role === 'customer'
+          ? 'Admin set this screen as the Customer Display.'
+          : `Admin paired this screen to ${config.stations.find(s => s.id === stationId)?.name || stationId}.`,
+        'admin',
+        'administrator'
+      );
+    };
+
+    return (
+      <div className="min-h-screen bg-[#120a09] font-sans text-[#2D1412]" id="station-app">
+        {!isScreenPaired ? (
+          <div className="min-h-screen flex items-center justify-center p-6">
+            <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm space-y-3 text-center">
+              <h2 className="text-lg font-display font-extrabold uppercase tracking-wider text-[#3F1C1A]">Set up this screen</h2>
+              <p className="text-xs text-stone-500">This screen isn't paired to a station yet. An Admin needs to log in once to choose it.</p>
+              <button
+                id="btn-station-app-setup"
+                onClick={openScreenSetup}
+                className="w-full px-4 py-2.5 rounded-lg bg-[#3F1C1A] text-[#EDD7A1] text-xs font-tech font-bold uppercase tracking-wider cursor-pointer"
+              >
+                Admin Login
+              </button>
+            </div>
+          </div>
+        ) : screenRole === 'customer' ? (
+          <CustomerDisplay orders={orders} />
+        ) : pairedStation ? (
+          <div className="p-2 sm:p-3">
+            <KDSStationView
+              station={pairedStation}
+              orders={orders}
+              menuItems={menuItems}
+              onToggleStock={handleStockToggle}
+              onItemBump={handleItemBump}
+              onPackingItemBump={handlePackingItemBump}
+              onOrderComplete={handleOrderComplete}
+              onOrderRecall={handleOrderRecall}
+              onItemRecall={handleItemRecall}
+              onReprintDocket={handleReprintDocket}
+              onManualReprint={handleManualReprint}
+              currentUserRole={currentUserRole}
+              allStations={config.stations}
+              pendingBumps={pendingBumps}
+              onUndoBump={handleUndoBump}
+              config={config}
+            />
+          </div>
+        ) : (
+          <div className="min-h-screen flex items-center justify-center p-6">
+            <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm space-y-3 text-center">
+              <h2 className="text-lg font-display font-extrabold uppercase tracking-wider text-[#3F1C1A]">Station not found</h2>
+              <p className="text-xs text-stone-500">The station this screen was paired to no longer exists. An Admin needs to choose another one.</p>
+              <button onClick={openScreenSetup} className="w-full px-4 py-2.5 rounded-lg bg-[#3F1C1A] text-[#EDD7A1] text-xs font-tech font-bold uppercase tracking-wider cursor-pointer">
+                Admin Login
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Small, out-of-the-way Admin access. Staff never need it. */}
+        {isScreenPaired && (
+          <button
+            id="btn-station-app-admin"
+            onClick={openScreenSetup}
+            aria-label="Admin"
+            className="fixed bottom-3 right-3 z-40 p-2 rounded-full bg-black/30 text-white/40 hover:text-white hover:bg-black/60 transition-all cursor-pointer"
+          >
+            <ShieldCheck className="h-4 w-4" />
+          </button>
+        )}
+
+        {/* SET UP THIS SCREEN (Admin only) */}
+        {showScreenSetup && isAdminMode && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" id="screen-setup-modal">
+            <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm space-y-4 max-h-[90vh] overflow-y-auto">
+              <div>
+                <h2 className="text-lg font-display font-extrabold uppercase tracking-wider text-[#3F1C1A]">Set up this screen</h2>
+                <p className="text-xs text-stone-500 mt-1">Choose what this screen shows. It stays this way, even after a restart.</p>
+              </div>
+              <div className="space-y-2">
+                {config.stations.map(st => {
+                  const isCurrent = isScreenPaired && screenRole === 'station' && st.id === activeStationId;
+                  return (
+                    <button
+                      key={st.id}
+                      id={`btn-pair-${st.id}`}
+                      onClick={() => pairScreen('station', st.id)}
+                      className={`w-full text-left px-4 py-2.5 rounded-lg border text-xs font-tech font-bold uppercase tracking-wider cursor-pointer ${
+                        isCurrent ? 'bg-[#3F1C1A] text-[#EDD7A1] border-[#3F1C1A]' : 'bg-white text-[#3F1C1A] border-[#EDD7A1] hover:bg-[#EDD7A1]/20'
+                      }`}
+                    >
+                      {st.name}{isCurrent ? ' (this screen)' : ''}
+                    </button>
+                  );
+                })}
+                <button
+                  id="btn-pair-customer-display"
+                  onClick={() => pairScreen('customer')}
+                  className={`w-full text-left px-4 py-2.5 rounded-lg border text-xs font-tech font-bold uppercase tracking-wider cursor-pointer ${
+                    isScreenPaired && screenRole === 'customer' ? 'bg-[#3F1C1A] text-[#EDD7A1] border-[#3F1C1A]' : 'bg-white text-[#3F1C1A] border-[#EDD7A1] hover:bg-[#EDD7A1]/20'
+                  }`}
+                >
+                  Customer Display{isScreenPaired && screenRole === 'customer' ? ' (this screen)' : ''}
+                </button>
+              </div>
+              <div className="flex flex-col gap-2 border-t border-stone-200 pt-3">
+                <button
+                  id="btn-station-app-open-console"
+                  onClick={() => { setShowScreenSetup(false); setStationAppConsoleOpen(true); }}
+                  className="w-full px-4 py-2 rounded-lg border border-stone-300 text-xs font-tech font-bold uppercase tracking-wider text-stone-600 cursor-pointer"
+                >
+                  Open full console (Admin)
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setShowScreenSetup(false); handleAdminLogout(); }}
+                    className="flex-1 px-4 py-2 rounded-lg border border-stone-300 text-xs font-tech font-bold uppercase tracking-wider text-stone-600 cursor-pointer"
+                  >
+                    Log out
+                  </button>
+                  <button
+                    onClick={() => setShowScreenSetup(false)}
+                    className="flex-1 px-4 py-2 rounded-lg bg-[#3F1C1A] text-[#EDD7A1] text-xs font-tech font-bold uppercase tracking-wider cursor-pointer"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {adminLoginModal}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F8F3EA] flex flex-col text-[#2D1412] font-sans" id="app-viewport">
       
@@ -1135,59 +1375,7 @@ export default function App() {
       </header>
 
       {/* ADMIN LOGIN MODAL — the only login screen in the whole system */}
-      {showAdminLogin && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" id="admin-login-modal">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm space-y-4">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-brand-orange" />
-              <h3 className="font-tech font-bold text-sm uppercase tracking-wider text-stone-900">Admin Login</h3>
-            </div>
-            <p className="text-xs text-stone-500">
-              Kitchen staff never log in. Admin login is only for configuration, stock, and audit access.
-            </p>
-            {!isBackendConnected && (
-              <p className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-2">
-                Backend not connected — using local demo login. Use: admin@sufra.example / ChangeMe123!
-              </p>
-            )}
-            <input
-              id="input-admin-email"
-              type="email"
-              value={adminEmailInput}
-              onChange={(e) => setAdminEmailInput(e.target.value)}
-              placeholder="admin@sufra.example"
-              className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-orange"
-              autoFocus
-            />
-            <input
-              id="input-admin-password"
-              type="password"
-              value={adminPasswordInput}
-              onChange={(e) => setAdminPasswordInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdminLoginAttempt()}
-              placeholder="Password"
-              className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-orange"
-            />
-            {adminLoginError && <p className="text-xs text-rose-600 font-bold">{adminLoginError}</p>}
-            <div className="flex gap-2">
-              <button
-                id="btn-admin-login-submit"
-                onClick={handleAdminLoginAttempt}
-                className="flex-1 bg-brand-orange text-white rounded-lg py-2 text-xs font-bold uppercase cursor-pointer hover:bg-orange-600"
-              >
-                Log In
-              </button>
-              <button
-                id="btn-admin-login-cancel"
-                onClick={() => { setShowAdminLogin(false); setAdminEmailInput(''); setAdminPasswordInput(''); setAdminLoginError(null); }}
-                className="flex-1 bg-stone-100 text-stone-700 rounded-lg py-2 text-xs font-bold uppercase cursor-pointer hover:bg-stone-200"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {adminLoginModal}
 
       {/* 2. LIVE METRICS BAR */}
       <section className="bg-[#EDD7A1]/30 border-b border-[#EDD7A1] px-6 py-3 grid grid-cols-2 md:grid-cols-4 gap-4" id="metrics-bar">
@@ -1595,6 +1783,16 @@ export default function App() {
           <CustomerDisplay orders={orders} />
         )}
       </main>
+
+      {isStationApp && stationAppConsoleOpen && (
+        <button
+          id="btn-back-to-station-screen"
+          onClick={() => setStationAppConsoleOpen(false)}
+          className="fixed bottom-3 right-3 z-40 px-4 py-2 rounded-full bg-[#3F1C1A] text-[#EDD7A1] text-xs font-tech font-bold uppercase tracking-wider shadow-lg cursor-pointer"
+        >
+          Back to station screen
+        </button>
+      )}
 
       {/* FOOTER DOCS GUIDE BRIEF */}
       <footer className="bg-white border-t border-stone-200 px-6 py-5 flex flex-col md:flex-row justify-between items-center text-xs text-stone-500 gap-3" id="footer-copyright">
