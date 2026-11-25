@@ -337,6 +337,7 @@ export default function App() {
     if (!BACKEND_CONFIGURED || !liveVenueId) return;
     const socket = connectSocket(liveVenueId);
     const onOrder = ({ orderId }: { orderId: string }) => {
+      if (liveInFlight.current[orderId]) return; // our own actions still on their way; final refetch covers it
       api.getOrder(orderId).then(r => upsertLiveOrder(r.order)).catch(() => {});
     };
     const onConfig = () => { loadLiveData(false).catch(() => {}); };
@@ -372,26 +373,83 @@ export default function App() {
   const liveRun = async <T,>(p: Promise<T>): Promise<T | null> => {
     try { return await p; } catch (err) { showLiveNotice(liveErrorMessage(err)); return null; }
   };
-  const addLivePending = (r: { pendingActionId?: string; undoSeconds?: number }, kind: 'item_prep' | 'item_pack', orderId: string, itemId: string) => {
-    if (!r.pendingActionId || !r.undoSeconds) return;
-    setPendingBumps(prev => [{
-      id: r.pendingActionId!, orderId, itemId, bumpType: kind,
-      itemPreviousQty: { completed: 0, packed: 0, status: 'pending' }, orderPreviousStatus: 'preparing',
-      scheduledPrintJobs: [], willCompleteOrder: false,
-      secondsRemaining: r.undoSeconds!, totalSeconds: r.undoSeconds!, startTime: Date.now(),
-    }, ...prev]);
+  // --- Smooth live actions ---
+  // A tap changes the screen instantly (the same counting rules as the server);
+  // the server confirms in the background. Each item's actions reach the server
+  // strictly in the order they were tapped, and while an order has actions on
+  // their way, intermediate updates for it are ignored so nothing flickers. When
+  // the last one is confirmed, the screen takes the server's final state. If the
+  // server refuses something, the screen corrects itself and says why.
+  const liveQueues = React.useRef<Record<string, Promise<unknown>>>({});
+  const liveInFlight = React.useRef<Record<string, number>>({});
+  const enqueueLive = <T,>(key: string, fn: () => Promise<T>): Promise<T> => {
+    const next = (liveQueues.current[key] || Promise.resolve()).catch(() => {}).then(fn);
+    liveQueues.current[key] = next.catch(() => {});
+    return next;
   };
-  const liveBump = async (kind: 'item_prep' | 'item_pack', orderId: string, itemId: string) => {
-    const r = await liveRun(kind === 'item_prep' ? api.prepareItem(orderId, itemId) : api.packItem(orderId, itemId));
-    if (!r) return;
-    upsertLiveOrder(r.order);
-    addLivePending(r, kind, orderId, itemId);
+  const beginLive = (orderId: string) => { liveInFlight.current[orderId] = (liveInFlight.current[orderId] || 0) + 1; };
+  const endLive = (orderId: string) => {
+    const n = (liveInFlight.current[orderId] || 1) - 1;
+    if (n > 0) { liveInFlight.current[orderId] = n; return; }
+    delete liveInFlight.current[orderId];
+    api.getOrder(orderId).then(r => upsertLiveOrder(r.order)).catch(() => {});
   };
-  const liveUndo = async (bump: PendingBump) => {
+  const applyLiveCount = (kind: 'item_prep' | 'item_pack', orderId: string, itemId: string, delta: 1 | -1) => {
+    setOrders(prev => prev.map(o => {
+      if (o.id !== orderId) return o;
+      const items = o.items.map(it => {
+        if (it.id !== itemId) return it;
+        if (kind === 'item_prep') {
+          const next = Math.max(0, Math.min(it.quantity, it.completedQuantity + delta));
+          return { ...it, completedQuantity: next, status: (next >= it.quantity ? 'completed' : next > 0 ? 'preparing' : it.recalledAt ? 'recalled' : 'pending') as OrderItem['status'] };
+        }
+        return { ...it, packedQuantity: Math.max(0, Math.min(it.completedQuantity, it.packedQuantity + delta)) };
+      });
+      if (o.status === 'completed') return { ...o, items };
+      const allPrepared = items.every(i => i.completedQuantity >= i.quantity);
+      const anyStarted = items.some(i => i.completedQuantity > 0);
+      return { ...o, items, status: (allPrepared ? 'ready_to_pack' : anyStarted ? 'preparing' : 'received') as Order['status'] };
+    }));
+  };
+  const liveBump = (kind: 'item_prep' | 'item_pack', orderId: string, itemId: string) => {
+    const item = orders.find(o => o.id === orderId)?.items.find(i => i.id === itemId);
+    if (!item) return;
+    if (kind === 'item_prep' && item.completedQuantity >= item.quantity) return;
+    if (kind === 'item_pack' && item.packedQuantity >= item.completedQuantity) return;
+
+    applyLiveCount(kind, orderId, itemId, 1);
+    const tempId = `live-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const secs = config.undoGracePeriodSeconds;
+    if (secs > 0) {
+      setPendingBumps(prev => [{
+        id: tempId, orderId, itemId, bumpType: kind,
+        itemPreviousQty: { completed: 0, packed: 0, status: 'pending' }, orderPreviousStatus: 'preparing',
+        scheduledPrintJobs: [], willCompleteOrder: false,
+        secondsRemaining: secs, totalSeconds: secs, startTime: Date.now(),
+      }, ...prev]);
+    }
+    beginLive(orderId);
+    enqueueLive(`${orderId}:${itemId}`, () => (kind === 'item_prep' ? api.prepareItem(orderId, itemId) : api.packItem(orderId, itemId)))
+      .then(r => {
+        // Keep the same countdown, now tied to the server's undo window.
+        setPendingBumps(prev => (r.pendingActionId ? prev.map(b => (b.id === tempId ? { ...b, id: r.pendingActionId! } : b)) : prev.filter(b => b.id !== tempId)));
+      })
+      .catch(err => {
+        setPendingBumps(prev => prev.filter(b => b.id !== tempId));
+        showLiveNotice(liveErrorMessage(err));
+      })
+      .finally(() => endLive(orderId));
+  };
+  const liveUndo = (bump: PendingBump) => {
     setPendingBumps(prev => prev.filter(b => b.id !== bump.id));
     if (!bump.itemId) return;
-    const r = await liveRun(bump.bumpType === 'item_pack' ? api.undoPack(bump.orderId, bump.itemId) : api.undoPrepare(bump.orderId, bump.itemId));
-    if (r) upsertLiveOrder(r.order);
+    const itemId = bump.itemId;
+    const kind = bump.bumpType === 'item_pack' ? 'item_pack' : 'item_prep';
+    applyLiveCount(kind, bump.orderId, itemId, -1);
+    beginLive(bump.orderId);
+    enqueueLive(`${bump.orderId}:${itemId}`, () => (kind === 'item_pack' ? api.undoPack(bump.orderId, itemId) : api.undoPrepare(bump.orderId, itemId)))
+      .catch(err => showLiveNotice(liveErrorMessage(err)))
+      .finally(() => endLive(bump.orderId));
   };
 
   // --- LOGGING HELPER ---
@@ -725,7 +783,7 @@ export default function App() {
   const handleUndoBump = (pendingBumpId: string) => {
     const targetBump = pendingBumps.find(b => b.id === pendingBumpId);
     if (!targetBump) return;
-    if (BACKEND_CONFIGURED) { void liveUndo(targetBump); return; }
+    if (BACKEND_CONFIGURED) { liveUndo(targetBump); return; }
 
     // 1. Revert order items and order status
     setOrders(prevOrders => prevOrders.map(order => {
@@ -772,7 +830,7 @@ export default function App() {
 
   // --- BUMPING EVENT HANDLERS (With Configurable 0/3/5/10s Grace Period) ---
   const handleItemBump = (orderId: string, itemId: string) => {
-    if (BACKEND_CONFIGURED) { void liveBump('item_prep', orderId, itemId); return; }
+    if (BACKEND_CONFIGURED) { liveBump('item_prep', orderId, itemId); return; }
     const targetOrder = orders.find(o => o.id === orderId);
     const targetItem = targetOrder?.items.find(i => i.id === itemId);
     if (!targetOrder || !targetItem) return;
@@ -865,7 +923,7 @@ export default function App() {
   };
 
   const handlePackingItemBump = (orderId: string, itemId: string) => {
-    if (BACKEND_CONFIGURED) { void liveBump('item_pack', orderId, itemId); return; }
+    if (BACKEND_CONFIGURED) { liveBump('item_pack', orderId, itemId); return; }
     const targetOrder = orders.find(o => o.id === orderId);
     const targetItem = targetOrder?.items.find(i => i.id === itemId);
     if (!targetOrder || !targetItem) return;
@@ -1153,7 +1211,8 @@ export default function App() {
       const current = menuItems.find(m => m.id === itemId);
       if (!current) return;
       const next = inStock !== undefined ? inStock : !current.inStock;
-      liveRun(api.setStock(itemId, next)).then(r => { if (r) setMenuItems(prev => prev.map(m => (m.id === itemId ? { ...m, inStock: next } : m))); });
+      setMenuItems(prev => prev.map(m => (m.id === itemId ? { ...m, inStock: next } : m)));
+      liveRun(api.setStock(itemId, next)).then(r => { if (!r) setMenuItems(prev => prev.map(m => (m.id === itemId ? { ...m, inStock: !next } : m))); });
       return;
     }
     let newInStockState = false;
