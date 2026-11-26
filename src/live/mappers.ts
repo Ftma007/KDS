@@ -28,6 +28,7 @@ export function mapMenuItem(m: any): MenuItem {
     stationId: m.stationId ? String(m.stationId) : '',
     stationIds: Array.isArray(m.stationIds) ? m.stationIds.map(String) : undefined,
     hasItemRouting: !!m.hasItemRouting,
+    isCombo: !!m.isCombo,
     inStock: m.inStock !== false,
   };
 }
@@ -59,6 +60,8 @@ export function mapOrder(o: any): Order {
         lastBumpedAt: i.lastBumpedAt || undefined,
         recalledAt: i.recalledAt || undefined,
         modifiers: i.modifiers && i.modifiers.length ? i.modifiers : undefined,
+        comboName: i.comboName || undefined,
+        comboGroup: i.comboGroup || undefined,
       })
     ),
   };

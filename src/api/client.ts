@@ -90,7 +90,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 export type SquareStatus = {
   configured: boolean; configProblem?: string | null; connected: boolean; environment?: string;
   businessName?: string; locationId?: string | null; locationName?: string | null;
-  locations?: { id: string; name: string }[]; expiresAt?: string;
+  locations?: { id: string; name: string }[]; expiresAt?: string; writeAccess?: boolean;
 };
 
 type ServerOrderAction = { order: any; item?: any; pendingActionId?: string; undoSeconds?: number };
@@ -184,6 +184,10 @@ export const api = {
     request<{ changed: number; createdStations: string[]; sections: { name: string; stationName: string; items: number; unknownItems: string[] }[]; skippedSections: string[] }>(
       '/menu/routing/apply', { method: 'POST', body: { text, createMissingStations }, auth: 'admin' }),
 
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ ok: true }>('/auth/admin/password', { method: 'POST', body: { currentPassword, newPassword }, auth: 'admin' }),
+  menuCombosPreview: (text: string) => request<{ matched: string[]; unknown: string[] }>('/menu/combos/preview', { method: 'POST', body: { text }, auth: 'admin' }),
+  menuCombosApply: (text: string) => request<{ combos: string[]; unknown: string[]; changed: number }>('/menu/combos/apply', { method: 'POST', body: { text }, auth: 'admin' }),
   clearActiveOrders: () => request<{ cleared: number; printsCancelled: number }>('/orders/clear-active', { method: 'POST', auth: 'admin' }),
 
   // --- Square (Admin) ---

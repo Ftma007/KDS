@@ -5,6 +5,11 @@ name: Build Android app
 # and it also runs on every push to main.
 on:
   workflow_dispatch:
+    inputs:
+      api_url:
+        description: "Server address for this venue's app (leave empty for Sufra)"
+        required: false
+        default: ''
   push:
     branches: [main]
 
@@ -30,7 +35,8 @@ jobs:
         env:
           # The Android app is the live system: it talks to the server.
           # (The web version on Vercel has no server address, so it stays the demo.)
-          VITE_API_URL: https://sufra-kds-backend.onrender.com/api
+          # Sufra by default; another venue's server can be chosen when running the build by hand.
+          VITE_API_URL: ${{ inputs.api_url != '' && inputs.api_url || 'https://sufra-kds-backend.onrender.com/api' }}
         run: npm run build
 
       - name: Add the Android tools for this build only (package.json is not changed)

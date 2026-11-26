@@ -982,11 +982,25 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
               // Items this screen draws: all of them, or only its own when the option is Off
               const visibleItems = showOtherStationItems ? order.items : order.items.filter(i => i.stationId === station.id);
 
+              // Combos inside a mixed order (live system): each combo gets the approved combo
+              // card with its own progress; the other items stay in their station groups.
+              const comboCards: { key: string; name: string; items: OrderItem[] }[] = [];
+              if (!order.comboName) {
+                const byGroup = new Map<string, { key: string; name: string; items: OrderItem[] }>();
+                visibleItems.forEach((it) => {
+                  if (!it.comboGroup || !it.comboName) return;
+                  let g = byGroup.get(it.comboGroup);
+                  if (!g) { g = { key: it.comboGroup, name: it.comboName, items: [] }; byGroup.set(it.comboGroup, g); comboCards.push(g); }
+                  g.items.push(it);
+                });
+              }
+              const stationGroupItems = comboCards.length ? visibleItems.filter((it) => !(it.comboGroup && it.comboName)) : visibleItems;
+
               // Group order items by stationId
               const stationGroups: { station: KDSStation; items: OrderItem[] }[] = [];
               const groupMap = new Map<string, OrderItem[]>();
 
-              visibleItems.forEach((item) => {
+              stationGroupItems.forEach((item) => {
                 if (!groupMap.has(item.stationId)) {
                   groupMap.set(item.stationId, []);
                 }
@@ -1024,100 +1038,12 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
               const isCollapsed = Boolean(isFadedEmpty && collapsedEmptyOrders[order.id]);
               const orderPendingBumps = pendingBumps.filter(pb => pb.orderId === order.id);
 
-              return (
-                <motion.div
-                  id={`kds-ticket-${order.id}`}
-                  key={order.id}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  transition={{ duration: 0.15 }}
-                  className={`border ${getTicketBorderColor(order.createdAt, kdsTheme === 'dark')} rounded-xl overflow-hidden flex flex-col justify-between transition-all ${
-                    isFadedEmpty
-                      ? 'opacity-40 hover:opacity-95 saturate-50 scale-[0.98] border-dashed bg-stone-950/40 shadow-none'
-                      : ''
-                  }`}
-                  style={{ minHeight: isCollapsed ? 'auto' : '320px' }}
-                >
-                  <div>
-                    {/* Ticket Header */}
-                    <div className={`p-3 border-b flex justify-between items-center transition-colors ${ticketHeaderColor}`}>
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <h3 className="font-display font-extrabold text-lg tracking-wider text-white bg-stone-950 px-2 py-0.5 rounded-md border border-stone-850">
-                            {orderLabel(order)}
-                          </h3>
-                          <span className={`text-[9px] font-tech font-bold uppercase px-1.5 py-0.5 rounded border ${
-                            kdsTheme === 'dark' ? 'bg-stone-900 border-stone-800 text-stone-400' : 'bg-white border-stone-200 text-stone-500'
-                          }`}>
-                            {order.source}
-                          </span>
-                          {!hasMyStationItems && (
-                            <span className="text-[8px] font-tech font-extrabold uppercase px-1.5 py-0.5 rounded border bg-amber-950/70 border-amber-700 text-amber-300">
-                              0 THIS STATION
-                            </span>
-                          )}
-                        </div>
-                        <p className={`text-xs font-tech font-bold mt-1 uppercase tracking-wide ${kdsTheme === 'dark' ? 'text-stone-200' : 'text-stone-800'}`}>
-                          {order.customerName}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${getTicketStatusBadge(order.createdAt, kdsTheme === 'dark')}`}>
-                          <Clock className="h-3 w-3 inline mr-1 -mt-0.5" /> {elapsedMins}m
-                        </span>
-                        <p className="text-[9px] font-mono text-stone-500 mt-1">{formatTime(order.createdAt)}</p>
-                      </div>
-                    </div>
 
-                    {/* Pending Bump Alert Ribbon if active on this ticket */}
-                    {orderPendingBumps.length > 0 && (
-                      <div className="mx-3 mt-2 p-2 bg-[#E5A330]/20 border border-[#E5A330] rounded-lg flex items-center justify-between text-xs animate-pulse">
-                        <div className="flex items-center gap-1.5 text-[#E5A330] font-tech font-black">
-                          <Timer className="h-4 w-4" />
-                          <span>BUMP PENDING ({orderPendingBumps[0].secondsRemaining}s)</span>
-                        </div>
-                        <button
-                          id={`btn-undo-bump-inline-${order.id}`}
-                          onClick={() => {
-                            onUndoBump?.(orderPendingBumps[0].id);
-                            showToast(`Bump cancelled!`);
-                          }}
-                          className="px-2.5 py-1 bg-[#E5A330] hover:bg-[#d69320] text-[#3F1C1A] text-[10px] font-tech font-black rounded cursor-pointer uppercase"
-                        >
-                          UNDO ({orderPendingBumps[0].secondsRemaining}s)
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Table/Delivery Location */}
-                    <div className={`px-3.5 py-2 border-b flex justify-between items-center text-xs font-mono transition-colors ${
-                      kdsTheme === 'dark' ? 'bg-stone-900/40 border-stone-900 text-stone-300' : 'bg-stone-50 border-stone-100 text-stone-600'
-                    }`}>
-                      <span className="text-stone-500 font-bold text-[9px] tracking-wider font-tech">LOCATION</span>
-                      <span className="text-orange-500 font-display font-bold text-sm tracking-wide">{order.tableNumber || 'Takeaway'}</span>
-                    </div>
-
-                    {/* Empty Station Info Bar with Collapse/Expand Toggle */}
-                    {!hasMyStationItems && (
-                      <div className="p-2.5 bg-stone-900/80 border-b border-stone-800 flex items-center justify-between text-xs">
-                        <span className="text-[10px] font-tech font-bold text-stone-400">
-                          {order.items.length} items routed to other kitchen stations
-                        </span>
-                        <button
-                          onClick={() => toggleOrderCollapse(order.id)}
-                          className="px-2 py-0.5 bg-stone-800 hover:bg-stone-700 text-stone-300 rounded text-[9px] font-tech font-bold cursor-pointer uppercase"
-                        >
-                          {isCollapsed ? 'Show Items' : 'Compact'}
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Ticket Items Grouped by Station / Category or Combo */}
-                    {!isCollapsed && (
-                    <div className="p-3 space-y-4">
-                      {order.comboName ? (
-                        /* IF COMBO ORDER: DISPLAY COMBO NAME HEADING & ALL ITEMS IN A SINGLE CARD */
+              // The approved combo card (header + one card of its items), for one combo.
+              const renderComboCard = (comboTitle: string, comboItems: OrderItem[]) => {
+                const comboTotal = comboItems.reduce((n, i) => n + i.quantity, 0);
+                const comboDone = comboItems.reduce((n, i) => n + Math.min(i.completedQuantity, i.quantity), 0);
+                return (
                         <div className="space-y-2">
                           {/* PROMINENT COMBO HEADER BAR */}
                           <div className="p-3 rounded-xl bg-gradient-to-r from-[#E5A330] via-[#d69320] to-[#E5A330] text-[#3F1C1A] border border-[#E5A330] flex justify-between items-center shadow-md">
@@ -1128,12 +1054,12 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                                   COMBO MEAL PACKAGE
                                 </span>
                                 <h4 className="text-base font-tech font-black tracking-wide leading-tight">
-                                  {order.comboName}
+                                  {comboTitle}
                                 </h4>
                               </div>
                             </div>
                             <span className="text-xs font-mono font-black bg-[#3F1C1A] text-[#EDD7A1] px-2.5 py-1 rounded-lg shadow-xs">
-                              {order.items.length} ITEMS
+                              {comboItems.length} ITEMS · {comboDone >= comboTotal ? 'ALL DONE' : `${comboDone}/${comboTotal} DONE`}
                             </span>
                           </div>
 
@@ -1143,7 +1069,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                               ? 'bg-[#1C1716] border-[#E5A330]/50 shadow-md' 
                               : 'bg-amber-50/60 border-amber-200 shadow-sm'
                           }`}>
-                            {[...visibleItems]
+                            {[...comboItems]
                               .sort((a, b) => {
                                 if (a.stationId === station.id) return -1;
                                 if (b.stationId === station.id) return 1;
@@ -1286,7 +1212,103 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
                             })}
                           </div>
                         </div>
-                      ) : (
+                );
+              };
+
+              return (
+                <motion.div
+                  id={`kds-ticket-${order.id}`}
+                  key={order.id}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  transition={{ duration: 0.15 }}
+                  className={`border ${getTicketBorderColor(order.createdAt, kdsTheme === 'dark')} rounded-xl overflow-hidden flex flex-col justify-between transition-all ${
+                    isFadedEmpty
+                      ? 'opacity-40 hover:opacity-95 saturate-50 scale-[0.98] border-dashed bg-stone-950/40 shadow-none'
+                      : ''
+                  }`}
+                  style={{ minHeight: isCollapsed ? 'auto' : '320px' }}
+                >
+                  <div>
+                    {/* Ticket Header */}
+                    <div className={`p-3 border-b flex justify-between items-center transition-colors ${ticketHeaderColor}`}>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <h3 className="font-display font-extrabold text-lg tracking-wider text-white bg-stone-950 px-2 py-0.5 rounded-md border border-stone-850">
+                            {orderLabel(order)}
+                          </h3>
+                          <span className={`text-[9px] font-tech font-bold uppercase px-1.5 py-0.5 rounded border ${
+                            kdsTheme === 'dark' ? 'bg-stone-900 border-stone-800 text-stone-400' : 'bg-white border-stone-200 text-stone-500'
+                          }`}>
+                            {order.source}
+                          </span>
+                          {!hasMyStationItems && (
+                            <span className="text-[8px] font-tech font-extrabold uppercase px-1.5 py-0.5 rounded border bg-amber-950/70 border-amber-700 text-amber-300">
+                              0 THIS STATION
+                            </span>
+                          )}
+                        </div>
+                        <p className={`text-xs font-tech font-bold mt-1 uppercase tracking-wide ${kdsTheme === 'dark' ? 'text-stone-200' : 'text-stone-800'}`}>
+                          {order.customerName}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${getTicketStatusBadge(order.createdAt, kdsTheme === 'dark')}`}>
+                          <Clock className="h-3 w-3 inline mr-1 -mt-0.5" /> {elapsedMins}m
+                        </span>
+                        <p className="text-[9px] font-mono text-stone-500 mt-1">{formatTime(order.createdAt)}</p>
+                      </div>
+                    </div>
+
+                    {/* Pending Bump Alert Ribbon if active on this ticket */}
+                    {orderPendingBumps.length > 0 && (
+                      <div className="mx-3 mt-2 p-2 bg-[#E5A330]/20 border border-[#E5A330] rounded-lg flex items-center justify-between text-xs animate-pulse">
+                        <div className="flex items-center gap-1.5 text-[#E5A330] font-tech font-black">
+                          <Timer className="h-4 w-4" />
+                          <span>BUMP PENDING ({orderPendingBumps[0].secondsRemaining}s)</span>
+                        </div>
+                        <button
+                          id={`btn-undo-bump-inline-${order.id}`}
+                          onClick={() => {
+                            onUndoBump?.(orderPendingBumps[0].id);
+                            showToast(`Bump cancelled!`);
+                          }}
+                          className="px-2.5 py-1 bg-[#E5A330] hover:bg-[#d69320] text-[#3F1C1A] text-[10px] font-tech font-black rounded cursor-pointer uppercase"
+                        >
+                          UNDO ({orderPendingBumps[0].secondsRemaining}s)
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Table/Delivery Location */}
+                    <div className={`px-3.5 py-2 border-b flex justify-between items-center text-xs font-mono transition-colors ${
+                      kdsTheme === 'dark' ? 'bg-stone-900/40 border-stone-900 text-stone-300' : 'bg-stone-50 border-stone-100 text-stone-600'
+                    }`}>
+                      <span className="text-stone-500 font-bold text-[9px] tracking-wider font-tech">LOCATION</span>
+                      <span className="text-orange-500 font-display font-bold text-sm tracking-wide">{order.tableNumber || 'Takeaway'}</span>
+                    </div>
+
+                    {/* Empty Station Info Bar with Collapse/Expand Toggle */}
+                    {!hasMyStationItems && (
+                      <div className="p-2.5 bg-stone-900/80 border-b border-stone-800 flex items-center justify-between text-xs">
+                        <span className="text-[10px] font-tech font-bold text-stone-400">
+                          {order.items.length} items routed to other kitchen stations
+                        </span>
+                        <button
+                          onClick={() => toggleOrderCollapse(order.id)}
+                          className="px-2 py-0.5 bg-stone-800 hover:bg-stone-700 text-stone-300 rounded text-[9px] font-tech font-bold cursor-pointer uppercase"
+                        >
+                          {isCollapsed ? 'Show Items' : 'Compact'}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Ticket Items Grouped by Station / Category or Combo */}
+                    {!isCollapsed && (
+                    <div className="p-3 space-y-4">
+                      {!order.comboName && comboCards.map((g) => <React.Fragment key={g.key}>{renderComboCard(g.name, g.items)}</React.Fragment>)}
+                      {order.comboName ? renderComboCard(order.comboName, visibleItems) : (
                         /* REGULAR NON-COMBO ORDERS: GROUPED BY STATION / CATEGORY */
                         stationGroups.map(({ station: groupStation, items: groupItems }) => {
                           const isCurrentStation = groupStation.id === station.id;

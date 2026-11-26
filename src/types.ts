@@ -9,6 +9,7 @@ export interface MenuItem {
   inStock: boolean;
   stationIds?: string[]; // live: every station that makes this item (item routing, else its category's station)
   hasItemRouting?: boolean;
+  isCombo?: boolean; // live: Admin marked this item as a combo
 }
 
 export interface KDSStation {
@@ -35,6 +36,8 @@ export interface OrderItem {
   lastBumpedAt?: string;
   recalledAt?: string;
   modifiers?: string[];
+  comboName?: string; // live: this item is a choice of a combo
+  comboGroup?: string; // live: which combo on the order (two deals never mix)
 }
 
 export interface Order {

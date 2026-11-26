@@ -267,6 +267,7 @@ export default function App() {
 
   const loadLiveData = async (withOrders: boolean) => {
     const [st, cf, mn, pr] = await Promise.all([api.getStations(), api.getConfig(), api.getMenu(), api.getPrinters()]);
+    setSyncStockToSquare(!!cf.config?.syncStockToSquare);
     const stations = mapStations(st.stations);
     setConfig(prev => applyServerConfig(prev, stations, cf.config));
     setVenueName((cf as any).venue?.name || null);
@@ -392,6 +393,7 @@ export default function App() {
 
   // Live: Square connection, managed from Admin.
   const [squareStatus, setSquareStatus] = React.useState<SquareStatus | null>(null);
+  const [syncStockToSquare, setSyncStockToSquare] = React.useState(false);
   const [squareBusy, setSquareBusy] = React.useState(false);
   const [squareLink, setSquareLink] = React.useState<string | null>(null);
   const [squareMessage, setSquareMessage] = React.useState<string | null>(null);
@@ -2161,6 +2163,37 @@ export default function App() {
                     },
                   } : undefined}
                   allowDeleteStations={BACKEND_CONFIGURED}
+                  liveExtras={BACKEND_CONFIGURED ? {
+                    stockSync: {
+                      enabled: syncStockToSquare,
+                      connected: !!squareStatus?.connected,
+                      writeAccess: !!squareStatus?.writeAccess,
+                      onToggle: async (on: boolean) => {
+                        try { await api.updateConfig({ syncStockToSquare: on }); setSyncStockToSquare(on); await refreshSquare(); }
+                        catch (err) { throw new Error(liveErrorMessage(err)); }
+                        return on ? 'On. Press Connect Square once more to allow stock updates in Square.' : 'Off. Out of stock now stays on the KDS only.';
+                      },
+                    },
+                    combos: {
+                      current: menuItems.filter(m => m.isCombo).map(m => m.name),
+                      onPreview: async (text: string) => { try { return await api.menuCombosPreview(text); } catch (err) { throw new Error(liveErrorMessage(err)); } },
+                      onSave: async (text: string) => {
+                        try { const r = await api.menuCombosApply(text); await loadLiveData(false); return r.combos.length ? `Saved. Combos: ${r.combos.join(', ')}.` : 'Saved. No combo items.'; }
+                        catch (err) { throw new Error(liveErrorMessage(err)); }
+                      },
+                    },
+                    onChangePassword: async (current: string, next: string) => {
+                      try { await api.changePassword(current, next); return 'Password changed. Use the new password from now on.'; }
+                      catch (err) { throw new Error(liveErrorMessage(err)); }
+                    },
+                    screens: {
+                      load: async () => {
+                        const r = await api.listDevices();
+                        return r.devices.map((d: any) => ({ id: String(d._id), label: d.deviceLabel || '', role: d.role, station: d.stationId?.name || 'Station', status: d.status, lastSeenAt: d.lastSeenAt }));
+                      },
+                      onUnpair: async (id: string) => { try { await api.unpairDevice(id); } catch (err) { throw new Error(liveErrorMessage(err)); } },
+                    },
+                  } : undefined}
                   onClearActiveOrders={BACKEND_CONFIGURED ? async () => {
                     try {
                       const r = await api.clearActiveOrders();

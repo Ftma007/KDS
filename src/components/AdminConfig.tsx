@@ -29,6 +29,12 @@ interface AdminConfigProps {
   }; // live only
   allowDeleteStations?: boolean; // live only: Delete button on each station except Packing & Pass
   onClearActiveOrders?: () => Promise<string>; // live only
+  liveExtras?: {
+    stockSync: { enabled: boolean; connected: boolean; writeAccess: boolean; onToggle: (on: boolean) => Promise<string> };
+    combos: { current: string[]; onPreview: (text: string) => Promise<{ matched: string[]; unknown: string[] }>; onSave: (text: string) => Promise<string> };
+    onChangePassword: (currentPassword: string, newPassword: string) => Promise<string>;
+    screens: { load: () => Promise<{ id: string; label: string; role: string; station: string; status: string; lastSeenAt?: string }[]>; onUnpair: (id: string) => Promise<void> };
+  }; // live only
   printerSetup?: {
     printers: Printer[];
     canTestPrint: boolean;
@@ -49,6 +55,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
   itemRouting,
   allowDeleteStations,
   onClearActiveOrders,
+  liveExtras,
   printerSetup,
   onPrinterDelete,
 }) => {
@@ -327,6 +334,8 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
           ))}
         </div>
       )}
+
+      {liveExtras && <LiveExtrasCards extras={liveExtras} />}
 
       {/* Current orders (live system only): clear everything on the screens without printing */}
       {onClearActiveOrders && (
@@ -988,5 +997,121 @@ function PrinterConnectionRow({ printer, canTestPrint, onSave, onTestPrint }: {
       </div>
       {msg && <p className="text-xs font-mono text-stone-700" id={`printer-msg-${printer.id}`}>{msg}</p>}
     </div>
+  );
+}
+
+type LiveExtras = NonNullable<AdminConfigProps['liveExtras']>;
+
+/** Live-only Admin cards: stock sync with Square, combo items, password, and screens. */
+function LiveExtrasCards({ extras }: { extras: LiveExtras }) {
+  const card = 'bg-white border border-stone-200 rounded-xl p-5 space-y-3 shadow-sm';
+  const h3 = 'text-sm font-display font-bold text-stone-850 uppercase tracking-wide';
+  const btn = 'px-3 py-2 rounded-lg bg-[#3F1C1A] text-[#EDD7A1] text-xs font-tech font-bold uppercase tracking-wider cursor-pointer disabled:opacity-40';
+  const btn2 = 'px-3 py-2 rounded-lg border border-stone-300 text-xs font-tech font-bold uppercase tracking-wider text-stone-700 cursor-pointer disabled:opacity-40';
+  const input = 'bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-xs';
+
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const [msg, setMsg] = React.useState<Record<string, string | null>>({});
+  const run = async (key: string, fn: () => Promise<string | void>) => {
+    setBusy(key); setMsg(m => ({ ...m, [key]: null }));
+    try { const r = await fn(); if (r) setMsg(m => ({ ...m, [key]: r })); }
+    catch (e) { setMsg(m => ({ ...m, [key]: e instanceof Error ? e.message : 'Failed.' })); }
+    finally { setBusy(null); }
+  };
+
+  const [comboText, setComboText] = React.useState(extras.combos.current.join('\n'));
+  const [comboPreview, setComboPreview] = React.useState<{ matched: string[]; unknown: string[] } | null>(null);
+  const [pw, setPw] = React.useState({ current: '', next: '', confirm: '' });
+  const [screens, setScreens] = React.useState<Awaited<ReturnType<LiveExtras['screens']['load']>> | null>(null);
+  const loadScreens = () => run('screens', async () => { setScreens(await extras.screens.load()); });
+  React.useEffect(() => { loadScreens(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  return (
+    <>
+      <div className={card} id="stock-sync-card">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className={h3}>Out of Stock in Square</h3>
+          <button type="button" id="toggle-stock-sync" disabled={busy === 'stock'}
+            onClick={() => run('stock', () => extras.stockSync.onToggle(!extras.stockSync.enabled))}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${extras.stockSync.enabled ? 'bg-emerald-500' : 'bg-stone-300'}`}>
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${extras.stockSync.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
+        <p className="text-xs text-stone-600">
+          When On, marking an item Out of Stock on the KDS also marks it sold out in Square (POS and online), and back in stock makes it available again.
+          Square only allows this through its stock tracking, so the item's stock tracking is switched on while it is out, then off again.
+          Items marked sold out in Square always show as Out of Stock here.
+        </p>
+        {extras.stockSync.enabled && extras.stockSync.connected && !extras.stockSync.writeAccess && (
+          <p className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-lg p-2.5" id="stock-sync-reconnect">
+            Square has not yet allowed stock updates: press Connect Square (in the Square card) once more and approve.
+          </p>
+        )}
+        {msg.stock && <p className="text-xs font-mono text-stone-700">{msg.stock}</p>}
+      </div>
+
+      <div className={card} id="combo-items-card">
+        <h3 className={h3}>Combo Items</h3>
+        <p className="text-xs text-stone-600">
+          One menu item name per line. When a combo is ordered, each of its choices that is a menu item becomes its own item at its own station,
+          shown under the combo, and the combo is done when every choice is bumped. Other dishes always keep their extras as extras.
+        </p>
+        <textarea id="input-combo-items" rows={4} value={comboText} onChange={(e) => { setComboText(e.target.value); setComboPreview(null); }}
+          placeholder={'Family Deal'} className="w-full bg-white border border-stone-200 text-xs rounded-lg p-2.5 font-mono" />
+        <div className="flex gap-2">
+          <button type="button" id="btn-combo-preview" className={btn2} disabled={busy === 'combo'}
+            onClick={() => run('combo', async () => { setComboPreview(await extras.combos.onPreview(comboText)); })}>Preview</button>
+          <button type="button" id="btn-combo-save" className={btn} disabled={busy === 'combo' || !comboPreview}
+            onClick={() => run('combo', async () => { const r = await extras.combos.onSave(comboText); setComboPreview(null); return r; })}>Save</button>
+        </div>
+        {comboPreview && (
+          <div className="text-[11px] bg-stone-50 border border-stone-200 rounded-lg p-2.5" id="combo-preview">
+            <p className="font-bold text-stone-800">{comboPreview.matched.length ? `Combos: ${comboPreview.matched.join(', ')}` : 'No combo items.'}</p>
+            {comboPreview.unknown.length > 0 && <p className="text-rose-700 mt-0.5">Not found in the menu: {comboPreview.unknown.join(', ')}</p>}
+          </div>
+        )}
+        {msg.combo && <p className="text-xs font-mono text-stone-700" id="combo-message">{msg.combo}</p>}
+      </div>
+
+      <div className={card} id="change-password-card">
+        <h3 className={h3}>Change Admin Password</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <input id="input-pw-current" type="password" placeholder="Current password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} className={input} />
+          <input id="input-pw-new" type="password" placeholder="New password (10+ characters)" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} className={input} />
+          <input id="input-pw-confirm" type="password" placeholder="Repeat new password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} className={input} />
+        </div>
+        <button type="button" id="btn-change-password" className={btn}
+          disabled={busy === 'pw' || !pw.current || pw.next.length < 10 || pw.next !== pw.confirm}
+          onClick={() => run('pw', async () => { const r = await extras.onChangePassword(pw.current, pw.next); setPw({ current: '', next: '', confirm: '' }); return r; })}>
+          Change password
+        </button>
+        {pw.next && pw.confirm && pw.next !== pw.confirm && <p className="text-xs text-rose-700">The new passwords don't match.</p>}
+        {msg.pw && <p className="text-xs font-mono text-stone-700" id="password-message">{msg.pw}</p>}
+      </div>
+
+      <div className={card} id="screens-card">
+        <div className="flex items-center justify-between">
+          <h3 className={h3}>Screens</h3>
+          <button type="button" className={btn2} onClick={loadScreens} disabled={busy === 'screens'}>Refresh</button>
+        </div>
+        <p className="text-xs text-stone-600">Every screen set up for this venue. Unpair a screen that is lost, replaced or no longer used; it returns to "Set up this screen".</p>
+        <div className="space-y-1.5">
+          {(screens || []).filter(d => d.status === 'active').map(d => (
+            <div key={d.id} className="flex items-center justify-between gap-2 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-xs" id={`screen-${d.id}`}>
+              <div>
+                <p className="font-bold text-stone-800">{d.role === 'customer_display' ? 'Customer Display' : d.station}</p>
+                <p className="text-[10px] text-stone-500 font-mono">{d.label}{d.lastSeenAt ? ` · last seen ${new Date(d.lastSeenAt).toLocaleString()}` : ''}</p>
+              </div>
+              <button type="button" id={`btn-unpair-${d.id}`} className="px-2.5 py-1 rounded-md border border-rose-300 text-rose-700 text-[10px] font-bold uppercase cursor-pointer"
+                onClick={() => { if (window.confirm('Unpair this screen? It will go back to "Set up this screen".')) run('screens', async () => { await extras.screens.onUnpair(d.id); setScreens(await extras.screens.load()); }); }}>
+                Unpair
+              </button>
+            </div>
+          ))}
+          {screens && screens.filter(d => d.status === 'active').length === 0 && <p className="text-xs text-stone-500">No screens set up yet.</p>}
+        </div>
+        {msg.screens && <p className="text-xs font-mono text-stone-700">{msg.screens}</p>}
+      </div>
+    </>
   );
 }
