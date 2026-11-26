@@ -2104,6 +2104,21 @@ export default function App() {
                   onPrinterDelete={handlePrinterDelete}
                   venueName={BACKEND_CONFIGURED ? venueName : undefined}
                   square={squarePanel}
+                  itemRouting={BACKEND_CONFIGURED ? {
+                    onPreview: async (text: string) => {
+                      try { return (await api.menuRoutingPreview(text)).sections; }
+                      catch (err) { throw new Error(liveErrorMessage(err)); }
+                    },
+                    onApply: async (text: string, createMissingStations: boolean) => {
+                      try {
+                        const r = await api.menuRoutingApply(text, createMissingStations);
+                        await loadLiveData(false);
+                        const created = r.createdStations.length ? ` New stations: ${r.createdStations.join(', ')}.` : '';
+                        const skipped = r.skippedSections.length ? ` Skipped (no station): ${r.skippedSections.join(', ')}.` : '';
+                        return `Saved. ${r.sections.map(s => `${s.stationName}: ${s.items} items`).join('; ')}.${created}${skipped}`;
+                      } catch (err) { throw new Error(liveErrorMessage(err)); }
+                    },
+                  } : undefined}
                   onVenueNameSave={BACKEND_CONFIGURED ? (name: string) => {
                     liveRun(api.updateConfig({ venueName: name })).then(r => {
                       if (r) { setVenueName((r as any).venue?.name || name); showLiveNotice('Venue name saved.'); }

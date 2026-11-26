@@ -26,6 +26,8 @@ export function mapMenuItem(m: any): MenuItem {
     category: m.category,
     price: Number(m.price || 0),
     stationId: m.stationId ? String(m.stationId) : '',
+    stationIds: Array.isArray(m.stationIds) ? m.stationIds.map(String) : undefined,
+    hasItemRouting: !!m.hasItemRouting,
     inStock: m.inStock !== false,
   };
 }

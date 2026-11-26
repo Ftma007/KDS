@@ -7,6 +7,8 @@ export interface MenuItem {
   price: number;
   stationId: string; // which station prepares it
   inStock: boolean;
+  stationIds?: string[]; // live: every station that makes this item (item routing, else its category's station)
+  hasItemRouting?: boolean;
 }
 
 export interface KDSStation {

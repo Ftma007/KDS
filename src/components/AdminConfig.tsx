@@ -23,6 +23,10 @@ interface AdminConfigProps {
     onDisconnect: () => void;
     onSetLocation: (id: string) => void;
   }; // live only
+  itemRouting?: {
+    onPreview: (text: string) => Promise<{ name: string; stationId: string | null; stationName: string | null; matched: string[]; unknownItems: string[] }[]>;
+    onApply: (text: string, createMissingStations: boolean) => Promise<string>;
+  }; // live only
 }
 
 export const AdminConfig: React.FC<AdminConfigProps> = ({
@@ -34,11 +38,17 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
   venueName,
   onVenueNameSave,
   square,
+  itemRouting,
   onPrinterDelete,
 }) => {
   const [stations, setStations] = React.useState<KDSStation[]>(config.stations);
   const [routing, setRouting] = React.useState<Record<string, string>>(config.categoryRouting);
   const [venueNameDraft, setVenueNameDraft] = React.useState<string>(venueName || '');
+  const [irText, setIrText] = React.useState('');
+  const [irPreview, setIrPreview] = React.useState<{ name: string; stationId: string | null; stationName: string | null; matched: string[]; unknownItems: string[] }[] | null>(null);
+  const [irBusy, setIrBusy] = React.useState(false);
+  const [irCreate, setIrCreate] = React.useState(true);
+  const [irMessage, setIrMessage] = React.useState<string | null>(null);
   React.useEffect(() => { setVenueNameDraft(venueName || ''); }, [venueName]);
   const [undoGracePeriod, setUndoGracePeriod] = React.useState<number>(
     config.undoGracePeriodSeconds !== undefined ? config.undoGracePeriodSeconds : 5
@@ -58,6 +68,9 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
 
   // New Category form states
   const [newCategoryName, setNewCategoryName] = React.useState('');
+  const [newStationName, setNewStationName] = React.useState('');
+  const [newStationColor, setNewStationColor] = React.useState('orange');
+  const [newStationError, setNewStationError] = React.useState<string | null>(null);
   const [newCategoryStationId, setNewCategoryStationId] = React.useState(stations[0]?.id || 'st-kitchen');
 
   // New Printer form states
@@ -98,6 +111,44 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
       undoGracePeriodSeconds: undoGracePeriod,
       fadeEmptyStationOrders,
     });
+  };
+
+  // Add a station: as many as the venue needs. New stations go just before Packing &
+  // Pass (which stays last), start with Label Printing Off and "Show other stations'
+  // items" On, like the existing ones. Names must be unique (pasted lists match by name).
+  const handleAddStationSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newStationName.trim().replace(/\s+/g, ' ');
+    if (!name) return;
+    if (stations.some(s => s.name.trim().toLowerCase() === name.toLowerCase())) {
+      setNewStationError(`There is already a station called "${name}".`);
+      return;
+    }
+    const newStation: KDSStation = {
+      id: `st-${Date.now()}`,
+      name,
+      color: newStationColor,
+      printerId: '',
+      labelPrintingEnabled: false,
+      showOtherStationItems: true,
+    };
+    const packIdx = stations.findIndex(s => isPackingStationObj(s));
+    const updatedStations = packIdx >= 0
+      ? [...stations.slice(0, packIdx), newStation, ...stations.slice(packIdx)]
+      : [...stations, newStation];
+    setStations(updatedStations);
+    onConfigChange({
+      ...config,
+      stations: updatedStations,
+      categoryRouting: routing,
+      displayOrder: updatedStations.map(s => s.id),
+      undoGracePeriodSeconds: undoGracePeriod,
+      fadeEmptyStationOrders,
+    });
+    setNewStationName('');
+    setNewStationError(null);
+    setSuccessMessage(`Station "${name}" added.`);
+    setTimeout(() => setSuccessMessage(null), 2500);
   };
 
   const handleAddCategorySubmit = (e: React.FormEvent) => {
@@ -245,6 +296,56 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
             </>
           )}
           {square.message && <p className="text-xs font-mono text-stone-700" id="square-message">{square.message}</p>}
+        </div>
+      )}
+
+      {/* Item routing (live system only): paste the section lists */}
+      {itemRouting && (
+        <div className="bg-white border border-stone-200 rounded-xl p-5 space-y-3 shadow-sm" id="item-routing-card">
+          <h3 className="text-sm font-display font-bold text-stone-850 uppercase tracking-wide">Item Routing</h3>
+          <p className="text-xs text-stone-600">
+            Paste section lists: a line like <span className="font-mono">Cafe Section :</span> then one item per line. Each pasted section replaces only that
+            section's items, so lists can be added one at a time. An item listed under two sections is made by both. Items on no list follow Category Routing.
+          </p>
+          <textarea
+            id="input-item-routing"
+            rows={8}
+            value={irText}
+            onChange={(e) => { setIrText(e.target.value); setIrPreview(null); setIrMessage(null); }}
+            placeholder={'Cafe Section :\nLatte\nCappuccino\n\nBBQ Shish :\nKafta'}
+            className="w-full bg-white border border-stone-200 text-xs rounded-lg p-2.5 font-mono text-stone-800 focus:outline-hidden"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <button id="btn-item-routing-preview" type="button" disabled={irBusy || !irText.trim()}
+              onClick={async () => { setIrBusy(true); setIrMessage(null); try { setIrPreview(await itemRouting.onPreview(irText)); } catch (e) { setIrMessage(e instanceof Error ? e.message : 'Preview failed.'); } finally { setIrBusy(false); } }}
+              className="px-3 py-2 rounded-lg border border-stone-300 text-xs font-tech font-bold uppercase tracking-wider text-stone-700 cursor-pointer disabled:opacity-40">
+              Preview
+            </button>
+            <button id="btn-item-routing-apply" type="button" disabled={irBusy || !irPreview}
+              onClick={async () => { setIrBusy(true); try { setIrMessage(await itemRouting.onApply(irText, irCreate)); setIrPreview(null); } catch (e) { setIrMessage(e instanceof Error ? e.message : 'Not saved.'); } finally { setIrBusy(false); } }}
+              className="px-3 py-2 rounded-lg bg-[#3F1C1A] text-[#EDD7A1] text-xs font-tech font-bold uppercase tracking-wider cursor-pointer disabled:opacity-40">
+              Apply
+            </button>
+            {irPreview && irPreview.some(p => !p.stationId) && (
+              <label className="flex items-center gap-1.5 text-[11px] text-stone-600">
+                <input id="chk-item-routing-create" type="checkbox" checked={irCreate} onChange={(e) => setIrCreate(e.target.checked)} />
+                Create stations for sections that don't exist yet
+              </label>
+            )}
+          </div>
+          {irPreview && (
+            <div className="space-y-2" id="item-routing-preview">
+              {irPreview.map((p, idx) => (
+                <div key={idx} className="text-[11px] bg-stone-50 border border-stone-200 rounded-lg p-2.5">
+                  <p className="font-bold text-stone-800">
+                    {p.name}: {p.stationId ? `${p.matched.length} items → ${p.stationName}` : (irCreate ? `${p.matched.length} items → new station "${p.name}"` : 'no station with this name')}
+                  </p>
+                  {p.unknownItems.length > 0 && <p className="text-rose-700 mt-0.5">Not found in the menu: {p.unknownItems.join(', ')}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+          {irMessage && <p className="text-xs font-mono text-stone-700" id="item-routing-message">{irMessage}</p>}
         </div>
       )}
 
@@ -476,6 +577,45 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
               </div>
             ))}
           </div>
+
+          {/* Form to Add New Station (as many as the venue needs) */}
+          <form onSubmit={handleAddStationSubmit} className="space-y-3.5 border-t border-stone-150 pt-3" id="add-station-form">
+            <p className="text-[10px] font-mono text-stone-500 uppercase tracking-wider font-extrabold flex items-center gap-1.5">
+              <Plus className="h-3.5 w-3.5 text-brand-orange" /> Add New Station:
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              <input
+                id="input-new-station-name"
+                type="text"
+                required
+                maxLength={40}
+                placeholder="E.g., Cafe Section, BBQ Shish..."
+                value={newStationName}
+                onChange={(e) => { setNewStationName(e.target.value); setNewStationError(null); }}
+                className="bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-stone-850 focus:outline-hidden focus:border-brand-orange font-medium"
+              />
+              <select
+                id="select-new-station-color"
+                value={newStationColor}
+                onChange={(e) => setNewStationColor(e.target.value)}
+                className="bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-stone-700 focus:outline-hidden focus:border-brand-orange font-medium"
+              >
+                <option value="orange">Glow: Orange Glow</option>
+                <option value="red">Glow: Red Crimson</option>
+                <option value="blue">Glow: Ice Blue</option>
+                <option value="emerald">Glow: Emerald Green</option>
+                <option value="indigo">Glow: Deep Indigo</option>
+              </select>
+            </div>
+            {newStationError && <p className="text-xs text-rose-700 font-bold" id="add-station-error">{newStationError}</p>}
+            <button
+              id="btn-add-new-station"
+              type="submit"
+              className="w-full py-2 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs uppercase tracking-wider"
+            >
+              <Plus className="h-4 w-4" /> Add Station
+            </button>
+          </form>
 
           <button
             id="btn-save-kds-config"

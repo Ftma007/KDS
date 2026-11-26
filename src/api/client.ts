@@ -176,6 +176,14 @@ export const api = {
   resolvePrintJob: (jobId: string, action: 'reprint' | 'mark_printed') =>
     request<{ job: any }>(`/print-jobs/${jobId}/resolve`, { method: 'POST', body: { action }, auth: 'device' }),
 
+  // --- Item routing (Admin): paste section lists ---
+  menuRoutingPreview: (text: string) =>
+    request<{ sections: { name: string; stationId: string | null; stationName: string | null; matched: string[]; unknownItems: string[] }[] }>(
+      '/menu/routing/preview', { method: 'POST', body: { text }, auth: 'admin' }),
+  menuRoutingApply: (text: string, createMissingStations: boolean) =>
+    request<{ changed: number; createdStations: string[]; sections: { name: string; stationName: string; items: number; unknownItems: string[] }[]; skippedSections: string[] }>(
+      '/menu/routing/apply', { method: 'POST', body: { text, createMissingStations }, auth: 'admin' }),
+
   // --- Square (Admin) ---
   squareStatus: () => request<SquareStatus>('/square/status', { auth: 'admin' }),
   squareConnectLink: () => request<{ url: string; expiresInMinutes: number }>('/square/oauth/ticket', { method: 'POST', auth: 'admin' }),

@@ -878,7 +878,7 @@ export const KDSStationView: React.FC<KDSStationViewProps> = ({
 
             <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
               {menuItems
-                .filter(i => isPackingStation || i.stationId === station.id) // each station: only its own items; Packing & Pass: all
+                .filter(i => isPackingStation || (i.stationIds && i.stationIds.length ? i.stationIds.includes(station.id) : i.stationId === station.id)) // each station: only items it makes; Packing & Pass: all
                 .filter(i => i.name.toLowerCase().includes(stockSearchQuery.toLowerCase()) || i.category.toLowerCase().includes(stockSearchQuery.toLowerCase()))
                 .map(item => (
                   <div
