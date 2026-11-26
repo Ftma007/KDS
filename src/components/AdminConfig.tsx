@@ -27,6 +27,7 @@ interface AdminConfigProps {
     onPreview: (text: string) => Promise<{ name: string; stationId: string | null; stationName: string | null; matched: string[]; unknownItems: string[] }[]>;
     onApply: (text: string, createMissingStations: boolean) => Promise<string>;
   }; // live only
+  allowDeleteStations?: boolean; // live only: Delete button on each station except Packing & Pass
 }
 
 export const AdminConfig: React.FC<AdminConfigProps> = ({
@@ -39,6 +40,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
   onVenueNameSave,
   square,
   itemRouting,
+  allowDeleteStations,
   onPrinterDelete,
 }) => {
   const [stations, setStations] = React.useState<KDSStation[]>(config.stations);
@@ -422,6 +424,30 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
                     className="flex-1 bg-white border border-stone-200 text-xs text-stone-850 px-2.5 py-1.5 rounded-lg focus:outline-hidden focus:border-brand-orange font-semibold"
                   />
                   <span className="text-[10px] font-mono text-stone-400 font-bold">POS Pos #{index + 1}</span>
+                  {allowDeleteStations && !isPackingStationObj(st) && (
+                    <button
+                      type="button"
+                      id={`btn-delete-station-${st.id}`}
+                      title={`Delete ${st.name}`}
+                      aria-label={`Delete ${st.name}`}
+                      onClick={() => {
+                        if (!window.confirm(`Delete "${st.name}"?\n\nIts items will go to Packing & Pass until you assign them to another station. Screens set up as "${st.name}" will need setting up again.`)) return;
+                        const updatedStations = stations.filter(s => s.id !== st.id);
+                        setStations(updatedStations);
+                        onConfigChange({
+                          ...config,
+                          stations: updatedStations,
+                          categoryRouting: routing,
+                          displayOrder: updatedStations.map(s => s.id),
+                          undoGracePeriodSeconds: undoGracePeriod,
+                          fadeEmptyStationOrders,
+                        });
+                      }}
+                      className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-md transition-all cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">

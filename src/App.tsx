@@ -2104,6 +2104,7 @@ export default function App() {
                   onPrinterDelete={handlePrinterDelete}
                   venueName={BACKEND_CONFIGURED ? venueName : undefined}
                   square={squarePanel}
+                  allowDeleteStations={BACKEND_CONFIGURED}
                   itemRouting={BACKEND_CONFIGURED ? {
                     onPreview: async (text: string) => {
                       try { return (await api.menuRoutingPreview(text)).sections; }
