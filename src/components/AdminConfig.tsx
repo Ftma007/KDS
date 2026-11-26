@@ -33,7 +33,15 @@ interface AdminConfigProps {
     stockSync: { enabled: boolean; connected: boolean; writeAccess: boolean; onToggle: (on: boolean) => Promise<string> };
     combos: { current: string[]; onPreview: (text: string) => Promise<{ matched: string[]; unknown: string[] }>; onSave: (text: string) => Promise<string> };
     onChangePassword: (currentPassword: string, newPassword: string) => Promise<string>;
-    screens: { load: () => Promise<{ id: string; label: string; role: string; station: string; status: string; lastSeenAt?: string }[]>; onUnpair: (id: string) => Promise<void> };
+    screens: { load: () => Promise<{ id: string; label: string; role: string; station: string; status: string; lastSeenAt?: string }[]>; onUnpair: (id: string) => Promise<void>; onRename: (id: string, label: string) => Promise<void> };
+    alerts: {
+      enabled: boolean; emails: string[]; emailReady: boolean;
+      sender: { email: string; passwordSet: boolean; host: string; port: number };
+      onSaveSender: (body: { alertFromEmail: string; alertFromPassword?: string; alertSmtpHost: string; alertSmtpPort: number }) => Promise<string>;
+      stations: { id: string; name: string; minutes: number }[];
+      onSave: (enabled: boolean, emails: string, minutes: Record<string, number>) => Promise<string>;
+      onTest: (emails: string) => Promise<string>;
+    };
   }; // live only
   printerSetup?: {
     printers: Printer[];
@@ -1020,6 +1028,10 @@ function LiveExtrasCards({ extras }: { extras: LiveExtras }) {
   };
 
   const [comboText, setComboText] = React.useState(extras.combos.current.join('\n'));
+  const [alertOn, setAlertOn] = React.useState(extras.alerts.enabled);
+  const [sender, setSender] = React.useState({ email: extras.alerts.sender.email, password: '', host: extras.alerts.sender.host || 'smtp.gmail.com', port: String(extras.alerts.sender.port || 465) });
+  const [alertEmails, setAlertEmails] = React.useState(extras.alerts.emails.join(', '));
+  const [alertMins, setAlertMins] = React.useState<Record<string, string>>(() => Object.fromEntries(extras.alerts.stations.map(s => [s.id, String(s.minutes)])));
   const [comboPreview, setComboPreview] = React.useState<{ matched: string[]; unknown: string[] } | null>(null);
   const [pw, setPw] = React.useState({ current: '', next: '', confirm: '' });
   const [screens, setScreens] = React.useState<Awaited<ReturnType<LiveExtras['screens']['load']>> | null>(null);
@@ -1048,6 +1060,61 @@ function LiveExtrasCards({ extras }: { extras: LiveExtras }) {
           </p>
         )}
         {msg.stock && <p className="text-xs font-mono text-stone-700">{msg.stock}</p>}
+      </div>
+
+      <div className={card} id="alerts-card">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className={h3}>Make-Time Alerts</h3>
+          <button type="button" id="toggle-alerts" onClick={() => setAlertOn(v => !v)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${alertOn ? 'bg-emerald-500' : 'bg-stone-300'}`}>
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${alertOn ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
+        <p className="text-xs text-stone-600">
+          An email when a ticket takes longer than its station's time limit, counted from when the order arrived. One email per ticket per station,
+          never repeated. Keep this Off while staff still bump on Square's own KDS, otherwise every order counts as late.
+        </p>
+        {!extras.alerts.emailReady && (
+          <p className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-lg p-2.5" id="alerts-email-not-ready">
+            No sending email account is set yet: fill in "Send alerts from" below, then Send test email.
+          </p>
+        )}
+        <input id="input-alert-emails" value={alertEmails} onChange={(e) => setAlertEmails(e.target.value)} placeholder="you@example.com, manager@example.com" className={`${input} w-full`} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {extras.alerts.stations.map(s => (
+            <label key={s.id} className="flex items-center justify-between gap-2 bg-stone-50 border border-stone-200 rounded-lg px-3 py-1.5 text-xs">
+              <span className="font-bold text-stone-800">{s.name}</span>
+              <span className="flex items-center gap-1.5">
+                <input id={`input-alert-min-${s.id}`} value={alertMins[s.id] ?? ''} onChange={(e) => setAlertMins(m => ({ ...m, [s.id]: e.target.value.replace(/[^0-9]/g, '') }))}
+                  className="w-14 bg-white border border-stone-200 rounded px-1.5 py-0.5 text-right font-mono" />
+                <span className="text-stone-500">min</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <p className="text-[10px] text-stone-500">0 = no alerts for that station.</p>
+        <div className="border-t border-stone-150 pt-3 space-y-2" id="alerts-sender">
+          <p className="text-[10px] font-mono text-stone-500 uppercase tracking-wider font-extrabold">Send alerts from</p>
+          <p className="text-[11px] text-stone-600">The email account that sends the alerts. For Gmail, use an App Password (Google account, Security, App passwords), not the normal password.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input id="input-sender-email" value={sender.email} onChange={(e) => setSender({ ...sender, email: e.target.value })} placeholder="alerts@gmail.com" className={input} />
+            <input id="input-sender-password" type="password" value={sender.password} onChange={(e) => setSender({ ...sender, password: e.target.value })}
+              placeholder={extras.alerts.sender.passwordSet ? 'Saved (leave blank to keep)' : 'App password'} className={input} />
+            <input id="input-sender-host" value={sender.host} onChange={(e) => setSender({ ...sender, host: e.target.value })} placeholder="smtp.gmail.com" className={input} />
+            <input id="input-sender-port" value={sender.port} onChange={(e) => setSender({ ...sender, port: e.target.value.replace(/[^0-9]/g, '') })} placeholder="465" className={input} />
+          </div>
+          <button type="button" id="btn-sender-save" className={btn2} disabled={busy === 'alerts' || !sender.email.trim()}
+            onClick={() => run('alerts', async () => { const r = await extras.alerts.onSaveSender({ alertFromEmail: sender.email.trim(), alertFromPassword: sender.password || undefined, alertSmtpHost: sender.host.trim() || 'smtp.gmail.com', alertSmtpPort: Number(sender.port || 465) }); setSender(s => ({ ...s, password: '' })); return r; })}>
+            Save sender
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <button type="button" id="btn-alerts-save" className={btn} disabled={busy === 'alerts'}
+            onClick={() => run('alerts', () => extras.alerts.onSave(alertOn, alertEmails, Object.fromEntries(Object.entries(alertMins).map(([k, v]) => [k, Number(v || 0)]))))}>Save</button>
+          <button type="button" id="btn-alerts-test" className={btn2} disabled={busy === 'alerts' || !extras.alerts.emailReady}
+            onClick={() => run('alerts', () => extras.alerts.onTest(alertEmails))}>Send test email</button>
+        </div>
+        {msg.alerts && <p className="text-xs font-mono text-stone-700" id="alerts-message">{msg.alerts}</p>}
       </div>
 
       <div className={card} id="combo-items-card">
@@ -1102,10 +1169,16 @@ function LiveExtrasCards({ extras }: { extras: LiveExtras }) {
                 <p className="font-bold text-stone-800">{d.role === 'customer_display' ? 'Customer Display' : d.station}</p>
                 <p className="text-[10px] text-stone-500 font-mono">{d.label}{d.lastSeenAt ? ` · last seen ${new Date(d.lastSeenAt).toLocaleString()}` : ''}</p>
               </div>
+              <div className="flex gap-1.5">
+              <button type="button" id={`btn-rename-${d.id}`} className="px-2.5 py-1 rounded-md border border-stone-300 text-stone-700 text-[10px] font-bold uppercase cursor-pointer"
+                onClick={() => { const name = window.prompt('Name this screen (e.g. Grill tablet):', d.label); if (name && name.trim()) run('screens', async () => { await extras.screens.onRename(d.id, name.trim()); setScreens(await extras.screens.load()); }); }}>
+                Rename
+              </button>
               <button type="button" id={`btn-unpair-${d.id}`} className="px-2.5 py-1 rounded-md border border-rose-300 text-rose-700 text-[10px] font-bold uppercase cursor-pointer"
                 onClick={() => { if (window.confirm('Unpair this screen? It will go back to "Set up this screen".')) run('screens', async () => { await extras.screens.onUnpair(d.id); setScreens(await extras.screens.load()); }); }}>
                 Unpair
               </button>
+              </div>
             </div>
           ))}
           {screens && screens.filter(d => d.status === 'active').length === 0 && <p className="text-xs text-stone-500">No screens set up yet.</p>}

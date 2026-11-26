@@ -16,6 +16,7 @@ export function mapStations(server: any[]): KDSStation[] {
     isPackingStation: !!s.isPackingStation,
     isDocketHandlingStation: !!s.isDocketHandlingStation,
     showOtherStationItems: s.showOtherStationItems !== false,
+    alertMinutes: typeof s.alertMinutes === 'number' ? s.alertMinutes : 15,
   }));
 }
 

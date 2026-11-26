@@ -98,7 +98,7 @@ type ServerOrderAction = { order: any; item?: any; pendingActionId?: string; und
 export const api = {
   // --- Auth ---
   adminLogin: (email: string, password: string) =>
-    request<{ token: string; admin: { id: string; name: string; email: string } }>('/auth/admin/login', {
+    request<{ token: string; admin: { id: string; name: string; email: string; venueId?: string } }>('/auth/admin/login', {
       method: 'POST',
       body: { email, password },
       auth: 'none',
@@ -143,7 +143,7 @@ export const api = {
   // --- Orders ---
   getOrders: (params?: { filter?: string; q?: string }) => {
     const qs = new URLSearchParams(params as Record<string, string>).toString();
-    return request<{ orders: any[] }>(`/orders${qs ? `?${qs}` : ''}`, { auth: 'device' });
+    return request<{ orders: any[] }>(`/orders${qs ? `?${qs}` : ''}`); // a paired screen, or Admin from anywhere
   },
   getOrder: (orderId: string) => request<{ order: any }>(`/orders/${orderId}`),
   prepareItem: (orderId: string, itemId: string) =>
@@ -188,6 +188,8 @@ export const api = {
     request<{ ok: true }>('/auth/admin/password', { method: 'POST', body: { currentPassword, newPassword }, auth: 'admin' }),
   menuCombosPreview: (text: string) => request<{ matched: string[]; unknown: string[] }>('/menu/combos/preview', { method: 'POST', body: { text }, auth: 'admin' }),
   menuCombosApply: (text: string) => request<{ combos: string[]; unknown: string[]; changed: number }>('/menu/combos/apply', { method: 'POST', body: { text }, auth: 'admin' }),
+  renameDevice: (deviceId: string, deviceLabel: string) => request<{ ok: true }>(`/auth/devices/${deviceId}`, { method: 'PATCH', body: { deviceLabel }, auth: 'admin' }),
+  sendTestAlert: () => request<{ ok: true; sentTo: string[] }>('/config/test-alert', { method: 'POST', auth: 'admin' }),
   clearActiveOrders: () => request<{ cleared: number; printsCancelled: number }>('/orders/clear-active', { method: 'POST', auth: 'admin' }),
 
   // --- Square (Admin) ---

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Order, OrderItem, KDSStation, Printer, PrintJob, AuditLog, KDSConfig, UserRole, MenuItem, PendingBump, isPackingStationObj } from './types';
-import { api, setAdminToken, setDeviceCredential, getDeviceCredential, ApiError, BACKEND_CONFIGURED, checkServerHealth, SquareStatus } from './api/client';
+import { api, getAdminToken, setAdminToken, setDeviceCredential, getDeviceCredential, ApiError, BACKEND_CONFIGURED, checkServerHealth, SquareStatus } from './api/client';
 import { mapStations, mapMenuItem, mapOrder, mapPrinter, applyServerConfig, mapAuditLog } from './live/mappers';
 import { startPrintRunner, canPrintHere, buildPrintData, sendToPrinter, testPrintPayload, RunnerState } from './print/runner';
 import { connectSocket, getSocket } from './api/socket';
@@ -216,14 +216,18 @@ export default function App() {
 
     if (BACKEND_CONFIGURED) {
       try {
-        const { token } = await api.adminLogin(adminEmailInput.trim(), adminPasswordInput);
+        const { token, admin } = await api.adminLogin(adminEmailInput.trim(), adminPasswordInput);
         setAdminToken(token);
         setIsAdminMode(true);
         setShowAdminLogin(false);
         setAdminEmailInput('');
         setAdminPasswordInput('');
         writeLog('Admin Login', 'Admin authenticated on this device.', 'admin', 'administrator');
-        loadLiveData(false).catch(() => {}); // stations for "Set up this screen"
+        // A browser that isn't a paired screen (Admin from anywhere): follow the venue live
+        // and load today's orders, so every station can be viewed remotely.
+        const remoteAdmin = !getDeviceCredential() && !isStationApp && !!admin?.venueId;
+        if (remoteAdmin) setLiveVenueId(admin.venueId!);
+        loadLiveData(remoteAdmin).catch(() => {}); // stations for "Set up this screen" (and orders when remote)
       } catch (err) {
         setAdminLoginError(err instanceof ApiError && err.status === 401 ? 'Incorrect email or password.' : 'Could not reach the backend server.');
       }
@@ -268,12 +272,16 @@ export default function App() {
   const loadLiveData = async (withOrders: boolean) => {
     const [st, cf, mn, pr] = await Promise.all([api.getStations(), api.getConfig(), api.getMenu(), api.getPrinters()]);
     setSyncStockToSquare(!!cf.config?.syncStockToSquare);
+    setAlertSettings({ enabled: !!cf.config?.alertsEnabled, emails: cf.config?.alertEmails || [], emailReady: !!(cf as any).emailReady,
+      sender: { email: cf.config?.alertFromEmail || '', passwordSet: !!cf.config?.alertFromPasswordSet, host: cf.config?.alertSmtpHost || 'smtp.gmail.com', port: cf.config?.alertSmtpPort || 465 } });
     const stations = mapStations(st.stations);
     setConfig(prev => applyServerConfig(prev, stations, cf.config));
+    // Live: if the selected station doesn't exist on the server (e.g. a demo station), show the first one.
+    setActiveStationId(prev => (stations.some(x => x.id === prev) ? prev : stations[0]?.id || prev));
     setVenueName((cf as any).venue?.name || null);
     setMenuItems(mn.items.map(mapMenuItem));
     setPrinters(pr.printers.map(mapPrinter));
-    if (withOrders && getDeviceCredential()) {
+    if (withOrders && (getDeviceCredential() || getAdminToken())) {
       const od = await api.getOrders({ filter: 'today' });
       setOrders(od.orders.map(mapOrder));
     }
@@ -394,6 +402,7 @@ export default function App() {
   // Live: Square connection, managed from Admin.
   const [squareStatus, setSquareStatus] = React.useState<SquareStatus | null>(null);
   const [syncStockToSquare, setSyncStockToSquare] = React.useState(false);
+  const [alertSettings, setAlertSettings] = React.useState<{ enabled: boolean; emails: string[]; emailReady: boolean; sender: { email: string; passwordSet: boolean; host: string; port: number } }>({ enabled: false, emails: [], emailReady: false, sender: { email: '', passwordSet: false, host: 'smtp.gmail.com', port: 465 } });
   const [squareBusy, setSquareBusy] = React.useState(false);
   const [squareLink, setSquareLink] = React.useState<string | null>(null);
   const [squareMessage, setSquareMessage] = React.useState<string | null>(null);
@@ -483,6 +492,7 @@ export default function App() {
     }));
   };
   const liveBump = (kind: 'item_prep' | 'item_pack', orderId: string, itemId: string) => {
+    if (!getDeviceCredential()) { showLiveNotice('View only: bumping happens on the kitchen screens.'); return; }
     const item = orders.find(o => o.id === orderId)?.items.find(i => i.id === itemId);
     if (!item) return;
     if (kind === 'item_prep' && item.completedQuantity >= item.quantity) return;
@@ -512,6 +522,7 @@ export default function App() {
       .finally(() => endLive(orderId));
   };
   const liveUndo = (bump: PendingBump) => {
+    if (!getDeviceCredential()) { showLiveNotice('View only: bumping happens on the kitchen screens.'); return; }
     setPendingBumps(prev => prev.filter(b => b.id !== bump.id));
     if (!bump.itemId) return;
     const itemId = bump.itemId;
@@ -1160,7 +1171,7 @@ export default function App() {
 
   // --- RECALL / REMAKE EVENT HANDLERS (Section 13: Recalling and Remaking Completed Items) ---
   const handleItemRecall = (orderId: string, itemId: string) => {
-    if (BACKEND_CONFIGURED) { liveRun(api.recallItem(orderId, itemId)).then(r => r && upsertLiveOrder(r.order)); return; }
+    if (BACKEND_CONFIGURED) { if (!getDeviceCredential()) { showLiveNotice('View only: recalls and reprints happen on the kitchen screens.'); return; } liveRun(api.recallItem(orderId, itemId)).then(r => r && upsertLiveOrder(r.order)); return; }
     setOrders(prevOrders => {
       return prevOrders.map(order => {
         if (order.id !== orderId) return order;
@@ -1196,7 +1207,7 @@ export default function App() {
   };
 
   const handleOrderRecall = (orderId: string) => {
-    if (BACKEND_CONFIGURED) { liveRun(api.recallEntireOrder(orderId)).then(r => r && upsertLiveOrder(r.order)); return; }
+    if (BACKEND_CONFIGURED) { if (!getDeviceCredential()) { showLiveNotice('View only: recalls and reprints happen on the kitchen screens.'); return; } liveRun(api.recallEntireOrder(orderId)).then(r => r && upsertLiveOrder(r.order)); return; }
     setOrders(prevOrders => {
       return prevOrders.map(order => {
         if (order.id !== orderId) return order;
@@ -1228,7 +1239,7 @@ export default function App() {
   };
 
   const handleReprintDocket = (orderId: string) => {
-    if (BACKEND_CONFIGURED) { liveRun(api.reprintTicket(orderId)).then(r => r && showLiveNotice('Order ticket sent to print.')); return; }
+    if (BACKEND_CONFIGURED) { if (!getDeviceCredential()) { showLiveNotice('View only: recalls and reprints happen on the kitchen screens.'); return; } liveRun(api.reprintTicket(orderId)).then(r => r && showLiveNotice('Order ticket sent to print.')); return; }
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
 
@@ -1245,7 +1256,7 @@ export default function App() {
   };
 
   const handleManualReprint = (orderId: string, itemId: string, actingStationId: string = 'st-packing') => {
-    if (BACKEND_CONFIGURED) { liveRun(api.reprintLabel(orderId, itemId)).then(r => r && showLiveNotice('Sticker sent to print.')); return; }
+    if (BACKEND_CONFIGURED) { if (!getDeviceCredential()) { showLiveNotice('View only: recalls and reprints happen on the kitchen screens.'); return; } liveRun(api.reprintLabel(orderId, itemId)).then(r => r && showLiveNotice('Sticker sent to print.')); return; }
     const order = orders.find(o => o.id === orderId);
     const item = order?.items.find(i => i.id === itemId);
     if (!order || !item) return;
@@ -2182,6 +2193,29 @@ export default function App() {
                         catch (err) { throw new Error(liveErrorMessage(err)); }
                       },
                     },
+                    alerts: {
+                      ...alertSettings,
+                      stations: config.stations.map(s => ({ id: s.id, name: s.name, minutes: s.alertMinutes ?? 15 })),
+                      onSave: async (enabled: boolean, emails: string, minutes: Record<string, number>) => {
+                        try {
+                          for (const [id, m] of Object.entries(minutes)) {
+                            const cur = config.stations.find(s => s.id === id)?.alertMinutes ?? 15;
+                            if (m !== cur) await api.updateStation(id, { alertMinutes: m });
+                          }
+                          await api.updateConfig({ alertsEnabled: enabled, alertEmails: emails });
+                          await loadLiveData(false);
+                          return enabled ? 'Saved. Alerts are On.' : 'Saved. Alerts are Off.';
+                        } catch (err) { throw new Error(liveErrorMessage(err)); }
+                      },
+                      onSaveSender: async (body: { alertFromEmail: string; alertFromPassword?: string; alertSmtpHost: string; alertSmtpPort: number }) => {
+                        try { await api.updateConfig(body); await loadLiveData(false); return 'Sender saved.'; }
+                        catch (err) { throw new Error(liveErrorMessage(err)); }
+                      },
+                      onTest: async (emails: string) => {
+                        try { await api.updateConfig({ alertEmails: emails }); const r = await api.sendTestAlert(); return `Test email sent to ${r.sentTo.join(', ')}.`; }
+                        catch (err) { throw new Error(liveErrorMessage(err)); }
+                      },
+                    },
                     onChangePassword: async (current: string, next: string) => {
                       try { await api.changePassword(current, next); return 'Password changed. Use the new password from now on.'; }
                       catch (err) { throw new Error(liveErrorMessage(err)); }
@@ -2192,6 +2226,7 @@ export default function App() {
                         return r.devices.map((d: any) => ({ id: String(d._id), label: d.deviceLabel || '', role: d.role, station: d.stationId?.name || 'Station', status: d.status, lastSeenAt: d.lastSeenAt }));
                       },
                       onUnpair: async (id: string) => { try { await api.unpairDevice(id); } catch (err) { throw new Error(liveErrorMessage(err)); } },
+                      onRename: async (id: string, label: string) => { try { await api.renameDevice(id, label); } catch (err) { throw new Error(liveErrorMessage(err)); } },
                     },
                   } : undefined}
                   onClearActiveOrders={BACKEND_CONFIGURED ? async () => {
@@ -2275,7 +2310,7 @@ export default function App() {
       <footer className="bg-white border-t border-stone-200 px-6 py-5 flex flex-col md:flex-row justify-between items-center text-xs text-stone-500 gap-3" id="footer-copyright">
         <div className="flex items-center gap-2">
           <BookOpen className="h-4 w-4 text-stone-400" />
-          <span>Kitchen Management System • Resilient off-grid thermal print spooler & live sync sandbox.</span>
+          <span>Kitchen Management System • {BACKEND_CONFIGURED ? 'Live kitchen display, connected to Square.' : 'Resilient off-grid thermal print spooler & live sync sandbox.'}</span>
         </div>
         <div>
           <span>Restaurant Operations Control Engine © 2026</span>

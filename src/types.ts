@@ -20,6 +20,7 @@ export interface KDSStation {
   labelPrintingEnabled?: boolean; // Per-station Label Printing (On/Off)
   isPackingStation?: boolean; // live data: set by the server (demo: id 'st-packing')
   isDocketHandlingStation?: boolean;
+  alertMinutes?: number; // live: make-time alert limit (0 = off)
   showOtherStationItems?: boolean; // On (default): tickets also show other stations' items for context. Off: only this station's own items and orders. Packing & Pass always sees everything.
 }
 
