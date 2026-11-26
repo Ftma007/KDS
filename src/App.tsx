@@ -2161,6 +2161,13 @@ export default function App() {
                     },
                   } : undefined}
                   allowDeleteStations={BACKEND_CONFIGURED}
+                  onClearActiveOrders={BACKEND_CONFIGURED ? async () => {
+                    try {
+                      const r = await api.clearActiveOrders();
+                      await loadLiveData(false);
+                      return `Cleared ${r.cleared} order(s). ${r.printsCancelled} queued print(s) cancelled. Nothing was printed.`;
+                    } catch (err) { throw new Error(liveErrorMessage(err)); }
+                  } : undefined}
                   itemRouting={BACKEND_CONFIGURED ? {
                     onPreview: async (text: string) => {
                       try { return (await api.menuRoutingPreview(text)).sections; }

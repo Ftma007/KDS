@@ -184,6 +184,8 @@ export const api = {
     request<{ changed: number; createdStations: string[]; sections: { name: string; stationName: string; items: number; unknownItems: string[] }[]; skippedSections: string[] }>(
       '/menu/routing/apply', { method: 'POST', body: { text, createMissingStations }, auth: 'admin' }),
 
+  clearActiveOrders: () => request<{ cleared: number; printsCancelled: number }>('/orders/clear-active', { method: 'POST', auth: 'admin' }),
+
   // --- Square (Admin) ---
   squareStatus: () => request<SquareStatus>('/square/status', { auth: 'admin' }),
   squareConnectLink: () => request<{ url: string; expiresInMinutes: number }>('/square/oauth/ticket', { method: 'POST', auth: 'admin' }),

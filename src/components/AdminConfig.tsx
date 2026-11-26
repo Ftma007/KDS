@@ -28,6 +28,7 @@ interface AdminConfigProps {
     onApply: (text: string, createMissingStations: boolean) => Promise<string>;
   }; // live only
   allowDeleteStations?: boolean; // live only: Delete button on each station except Packing & Pass
+  onClearActiveOrders?: () => Promise<string>; // live only
   printerSetup?: {
     printers: Printer[];
     canTestPrint: boolean;
@@ -47,6 +48,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
   square,
   itemRouting,
   allowDeleteStations,
+  onClearActiveOrders,
   printerSetup,
   onPrinterDelete,
 }) => {
@@ -54,6 +56,8 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
   const [routing, setRouting] = React.useState<Record<string, string>>(config.categoryRouting);
   const [venueNameDraft, setVenueNameDraft] = React.useState<string>(venueName || '');
   const [irText, setIrText] = React.useState('');
+  const [clearBusy, setClearBusy] = React.useState(false);
+  const [clearMsg, setClearMsg] = React.useState<string | null>(null);
   const [irPreview, setIrPreview] = React.useState<{ name: string; stationId: string | null; stationName: string | null; matched: string[]; unknownItems: string[] }[] | null>(null);
   const [irBusy, setIrBusy] = React.useState(false);
   const [irCreate, setIrCreate] = React.useState(true);
@@ -324,6 +328,27 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
         </div>
       )}
 
+      {/* Current orders (live system only): clear everything on the screens without printing */}
+      {onClearActiveOrders && (
+        <div className="bg-white border border-stone-200 rounded-xl p-5 space-y-3 shadow-sm" id="clear-orders-card">
+          <h3 className="text-sm font-display font-bold text-stone-850 uppercase tracking-wide">Current Orders</h3>
+          <p className="text-xs text-stone-600">
+            Clears every current order from all screens without printing anything, and cancels anything still waiting to print.
+            For setup and while Square's own KDS is still in use. Orders stay in History.
+          </p>
+          <button id="btn-clear-active-orders" type="button" disabled={clearBusy}
+            onClick={async () => {
+              if (!window.confirm('Clear all current orders from every screen?\n\nNothing will print, and anything waiting to print is cancelled. Orders stay in History.')) return;
+              setClearBusy(true); setClearMsg(null);
+              try { setClearMsg(await onClearActiveOrders()); } catch (e) { setClearMsg(e instanceof Error ? e.message : 'Not cleared.'); } finally { setClearBusy(false); }
+            }}
+            className="px-3 py-2 rounded-lg border border-rose-300 text-rose-700 bg-rose-50 text-xs font-tech font-bold uppercase tracking-wider cursor-pointer disabled:opacity-40">
+            Clear all current orders
+          </button>
+          {clearMsg && <p className="text-xs font-mono text-stone-700" id="clear-orders-message">{clearMsg}</p>}
+        </div>
+      )}
+
       {/* Item routing (live system only): paste the section lists */}
       {itemRouting && (
         <div className="bg-white border border-stone-200 rounded-xl p-5 space-y-3 shadow-sm" id="item-routing-card">
@@ -454,7 +479,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
                       title={`Delete ${st.name}`}
                       aria-label={`Delete ${st.name}`}
                       onClick={() => {
-                        if (!window.confirm(`Delete "${st.name}"?\n\nIts items will go to Packing & Pass until you assign them to another station. Screens set up as "${st.name}" will need setting up again.`)) return;
+                        if (!window.confirm(`Delete "${st.name}"?\n\nIts items will go to Packing & Pass until you assign them to another station, and any unfinished items there now move to Packing & Pass, ready to pack. Screens set up as "${st.name}" will need setting up again.`)) return;
                         const updatedStations = stations.filter(s => s.id !== st.id);
                         setStations(updatedStations);
                         onConfigChange({
