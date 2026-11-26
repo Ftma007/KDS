@@ -57,6 +57,10 @@ export interface Printer {
   type: 'label' | 'receipt';
   status: 'online' | 'offline' | 'jammed';
   stationId?: string; // which station owns it
+  ipAddress?: string | null; // live: network printer address
+  port?: number;
+  paperWidthMm?: 58 | 80;
+  commandMode?: 'starprnt' | 'stargraphic';
 }
 
 export interface PrintJob {

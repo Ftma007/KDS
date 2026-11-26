@@ -3,6 +3,7 @@ package com.sufra.kds;
 import android.content.Intent;
 import android.os.Build;
 import android.os.SystemClock;
+import android.util.Base64;
 import android.provider.Settings;
 import android.view.View;
 import android.view.WindowManager;
@@ -103,6 +104,69 @@ public class KdsNativePlugin extends Plugin {
                 ret.put("error", e.getClass().getSimpleName() + ": " + e.getMessage());
             }
             call.resolve(ret);
+        }).start();
+    }
+
+    /**
+     * Sends ready-made printer commands (base64) to a network printer over TCP.
+     * The result says where a failure happened:
+     *   stage "connect": nothing reached the printer, so it is safe to retry;
+     *   stage "write":   the connection dropped while sending, so the label may have
+     *                    half-printed and a person checks it ("Check This Label").
+     */
+    @PluginMethod
+    public void rawPrintBytes(final PluginCall call) {
+        final String host = call.getString("host");
+        final Integer portArg = call.getInt("port", 9100);
+        final Integer timeoutArg = call.getInt("timeoutMs", 6000);
+        final String data = call.getString("data");
+        if (host == null || host.isEmpty() || data == null || data.isEmpty()) {
+            call.reject("host and data are required");
+            return;
+        }
+        final int port = portArg == null ? 9100 : portArg;
+        final int timeoutMs = timeoutArg == null ? 6000 : timeoutArg;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                JSObject ret = new JSObject();
+                byte[] bytes;
+                try {
+                    bytes = Base64.decode(data, Base64.DEFAULT);
+                } catch (IllegalArgumentException e) {
+                    ret.put("ok", false);
+                    ret.put("stage", "connect");
+                    ret.put("error", "Print data could not be read.");
+                    call.resolve(ret);
+                    return;
+                }
+                Socket socket = new Socket();
+                try {
+                    socket.connect(new InetSocketAddress(host, port), timeoutMs);
+                } catch (Exception e) {
+                    try { socket.close(); } catch (Exception ignored) { }
+                    ret.put("ok", false);
+                    ret.put("stage", "connect");
+                    ret.put("error", e.getMessage() == null ? e.toString() : e.getMessage());
+                    call.resolve(ret);
+                    return;
+                }
+                try {
+                    socket.setSoTimeout(timeoutMs);
+                    OutputStream out = socket.getOutputStream();
+                    out.write(bytes);
+                    out.flush();
+                    ret.put("ok", true);
+                    ret.put("bytes", bytes.length);
+                } catch (Exception e) {
+                    ret.put("ok", false);
+                    ret.put("stage", "write");
+                    ret.put("error", e.getMessage() == null ? e.toString() : e.getMessage());
+                } finally {
+                    try { socket.close(); } catch (Exception ignored) { }
+                }
+                call.resolve(ret);
+            }
         }).start();
     }
 

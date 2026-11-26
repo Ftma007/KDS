@@ -1,7 +1,8 @@
 import React from 'react';
-import { Order, OrderItem, KDSStation, Printer, PrintJob, AuditLog, KDSConfig, UserRole, MenuItem, PendingBump } from './types';
+import { Order, OrderItem, KDSStation, Printer, PrintJob, AuditLog, KDSConfig, UserRole, MenuItem, PendingBump, isPackingStationObj } from './types';
 import { api, setAdminToken, setDeviceCredential, getDeviceCredential, ApiError, BACKEND_CONFIGURED, checkServerHealth, SquareStatus } from './api/client';
 import { mapStations, mapMenuItem, mapOrder, mapPrinter, applyServerConfig, mapAuditLog } from './live/mappers';
+import { startPrintRunner, canPrintHere, buildPrintData, sendToPrinter, testPrintPayload, RunnerState } from './print/runner';
 import { connectSocket, getSocket } from './api/socket';
 import {
   INITIAL_MENU,
@@ -364,6 +365,30 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveVenueId]);
+
+  // Live printing: the Packing & Pass screen runs the print runner and shows
+  // "Check This Label" for any print with an uncertain result.
+  const [printState, setPrintState] = React.useState<RunnerState>({ status: 'idle' });
+  const [uncertainJobs, setUncertainJobs] = React.useState<any[]>([]);
+  const pairedStationForPrint = config.stations.find(s => s.id === activeStationId);
+  const isLivePackingScreen = BACKEND_CONFIGURED && isStationApp && isScreenPaired && screenRole === 'station'
+    && !!pairedStationForPrint && isPackingStationObj(pairedStationForPrint);
+  React.useEffect(() => {
+    if (!isLivePackingScreen || !liveVenueId) return;
+    const refresh = () => { api.listPrintJobs(['uncertain']).then(r => setUncertainJobs(r.jobs)).catch(() => {}); };
+    refresh();
+    const poll = window.setInterval(refresh, 5000);
+    const runner = canPrintHere() ? startPrintRunner(setPrintState) : null;
+    const socket = connectSocket(liveVenueId);
+    const onJob = () => { runner?.kick(); refresh(); };
+    socket.on('printjob:updated', onJob);
+    return () => { window.clearInterval(poll); runner?.stop(); socket.off('printjob:updated', onJob); };
+  }, [isLivePackingScreen, liveVenueId]);
+  const resolveUncertain = (jobId: string, action: 'reprint' | 'mark_printed') => {
+    api.resolvePrintJob(jobId, action)
+      .then(() => api.listPrintJobs(['uncertain']).then(r => setUncertainJobs(r.jobs)))
+      .catch(err => showLiveNotice(liveErrorMessage(err)));
+  };
 
   // Live: Square connection, managed from Admin.
   const [squareStatus, setSquareStatus] = React.useState<SquareStatus | null>(null);
@@ -1521,6 +1546,25 @@ export default function App() {
           <CustomerDisplay orders={orders} venueName={BACKEND_CONFIGURED ? venueName : undefined} />
         ) : pairedStation ? (
           <div className="p-2 sm:p-3">
+            {isLivePackingScreen && (uncertainJobs.length > 0 || printState.status === 'offline') && (
+              <div className="space-y-2 mb-2" id="print-alerts">
+                {uncertainJobs.map(j => (
+                  <div key={j._id} id={`check-label-${j._id}`} className="bg-rose-50 border-2 border-rose-500 rounded-xl p-3 flex flex-wrap items-center gap-3">
+                    <div className="flex-1 min-w-[220px]">
+                      <p className="text-sm font-tech font-black text-rose-800 uppercase tracking-wider">Check This Label</p>
+                      <p className="text-xs text-rose-900">{j.title}: it may not have printed. Did it come out?</p>
+                    </div>
+                    <button type="button" id={`btn-label-reprint-${j._id}`} onClick={() => resolveUncertain(j._id, 'reprint')}
+                      className="px-3 py-2 rounded-lg bg-rose-600 text-white text-xs font-tech font-bold uppercase tracking-wider cursor-pointer">Reprint</button>
+                    <button type="button" id={`btn-label-mark-printed-${j._id}`} onClick={() => resolveUncertain(j._id, 'mark_printed')}
+                      className="px-3 py-2 rounded-lg border border-rose-400 bg-white text-rose-800 text-xs font-tech font-bold uppercase tracking-wider cursor-pointer">Mark as printed</button>
+                  </div>
+                ))}
+                {printState.status === 'offline' && printState.message && (
+                  <div id="printer-status" className="bg-amber-50 border border-amber-400 rounded-xl px-3 py-2 text-xs font-bold text-amber-900">{printState.message}</div>
+                )}
+              </div>
+            )}
             <KDSStationView
               station={pairedStation}
               orders={orders}
@@ -2104,6 +2148,18 @@ export default function App() {
                   onPrinterDelete={handlePrinterDelete}
                   venueName={BACKEND_CONFIGURED ? venueName : undefined}
                   square={squarePanel}
+                  printerSetup={BACKEND_CONFIGURED ? {
+                    printers,
+                    canTestPrint: canPrintHere(),
+                    onSave: async (id: string, body: { ipAddress: string; port: number; paperWidthMm: 58 | 80; commandMode: 'starprnt' | 'stargraphic' }) => {
+                      try { await api.updatePrinter(id, body); await loadLiveData(false); return 'Saved.'; }
+                      catch (err) { throw new Error(liveErrorMessage(err)); }
+                    },
+                    onTestPrint: async (printer: { ipAddress?: string | null; port?: number; paperWidthMm?: number; commandMode?: string }) => {
+                      const r = await sendToPrinter(printer, buildPrintData({ payload: testPrintPayload() }, printer));
+                      return r.ok ? 'Sent to the printer. Check it printed clearly and was cut.' : `Not printed: ${r.error}`;
+                    },
+                  } : undefined}
                   allowDeleteStations={BACKEND_CONFIGURED}
                   itemRouting={BACKEND_CONFIGURED ? {
                     onPreview: async (text: string) => {

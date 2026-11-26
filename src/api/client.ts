@@ -127,7 +127,7 @@ export const api = {
   // --- Printers ---
   getPrinters: () => request<{ printers: any[] }>('/printers'),
   createPrinter: (body: any) => request<{ printer: any }>('/printers', { method: 'POST', body, auth: 'admin' }),
-  updatePrinter: (id: string, body: { name?: string; ipAddress?: string; port?: number }) =>
+  updatePrinter: (id: string, body: { name?: string; ipAddress?: string; port?: number; paperWidthMm?: 58 | 80; commandMode?: 'starprnt' | 'stargraphic' }) =>
     request<{ printer: any }>(`/printers/${id}`, { method: 'PATCH', body, auth: 'admin' }),
   deletePrinter: (id: string) => request<{ ok: true }>(`/printers/${id}`, { method: 'DELETE', auth: 'admin' }),
 

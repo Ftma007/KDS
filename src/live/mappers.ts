@@ -70,6 +70,10 @@ export function mapPrinter(p: any): Printer {
     name: p.name,
     type: p.type === 'label' ? 'label' : 'receipt',
     status: p.status === 'offline' || p.status === 'jammed' ? p.status : 'online',
+    ipAddress: p.ipAddress || null,
+    port: p.port || 9100,
+    paperWidthMm: p.paperWidthMm === 58 ? 58 : 80,
+    commandMode: p.commandMode === 'stargraphic' ? 'stargraphic' : 'starprnt',
   };
 }
 

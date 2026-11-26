@@ -7,7 +7,9 @@ let socket: Socket | null = null;
 /** Connects once and joins the venue's room — every station, Packing & Pass,
  * and the Customer Display all react to the same events (FS Section 5/6). */
 export function connectSocket(venueId: string): Socket {
-  if (socket?.connected) return socket;
+  // Reuse the one connection, also while it is still connecting (otherwise a second
+  // caller opens a duplicate connection and every event arrives twice).
+  if (socket && (socket.connected || socket.active)) return socket;
 
   socket = io(SOCKET_URL, { transports: ['websocket'] });
   socket.on('connect', () => {

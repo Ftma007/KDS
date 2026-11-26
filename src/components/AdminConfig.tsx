@@ -28,6 +28,12 @@ interface AdminConfigProps {
     onApply: (text: string, createMissingStations: boolean) => Promise<string>;
   }; // live only
   allowDeleteStations?: boolean; // live only: Delete button on each station except Packing & Pass
+  printerSetup?: {
+    printers: Printer[];
+    canTestPrint: boolean;
+    onSave: (id: string, body: { ipAddress: string; port: number; paperWidthMm: 58 | 80; commandMode: 'starprnt' | 'stargraphic' }) => Promise<string>;
+    onTestPrint: (printer: Printer) => Promise<string>;
+  }; // live only
 }
 
 export const AdminConfig: React.FC<AdminConfigProps> = ({
@@ -41,6 +47,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
   square,
   itemRouting,
   allowDeleteStations,
+  printerSetup,
   onPrinterDelete,
 }) => {
   const [stations, setStations] = React.useState<KDSStation[]>(config.stations);
@@ -298,6 +305,22 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
             </>
           )}
           {square.message && <p className="text-xs font-mono text-stone-700" id="square-message">{square.message}</p>}
+        </div>
+      )}
+
+      {/* Printer connection (live system only): where the Packing & Pass app prints */}
+      {printerSetup && (
+        <div className="bg-white border border-stone-200 rounded-xl p-5 space-y-3 shadow-sm" id="printer-connection-card">
+          <h3 className="text-sm font-display font-bold text-stone-850 uppercase tracking-wide">Printer Connection</h3>
+          <p className="text-xs text-stone-600">
+            The Packing & Pass screen prints stickers and order tickets straight to this printer over the shop network.
+            {!printerSetup.canTestPrint && ' Test print works from the Android app on the screen (a browser cannot reach printers).'}
+          </p>
+          {printerSetup.printers.map(p => (
+            <React.Fragment key={p.id}>
+              <PrinterConnectionRow printer={p} canTestPrint={printerSetup.canTestPrint} onSave={printerSetup.onSave} onTestPrint={printerSetup.onTestPrint} />
+            </React.Fragment>
+          ))}
         </div>
       )}
 
@@ -888,3 +911,57 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({
     </div>
   );
 };
+
+/** One printer's network settings, with Save and Test print (live system only). */
+function PrinterConnectionRow({ printer, canTestPrint, onSave, onTestPrint }: {
+  printer: Printer;
+  canTestPrint: boolean;
+  onSave: (id: string, body: { ipAddress: string; port: number; paperWidthMm: 58 | 80; commandMode: 'starprnt' | 'stargraphic' }) => Promise<string>;
+  onTestPrint: (printer: Printer) => Promise<string>;
+}) {
+  const [ip, setIp] = React.useState(printer.ipAddress || '');
+  const [port, setPort] = React.useState(String(printer.port || 9100));
+  const [width, setWidth] = React.useState<58 | 80>(printer.paperWidthMm === 58 ? 58 : 80);
+  const [mode, setMode] = React.useState<'starprnt' | 'stargraphic'>(printer.commandMode === 'stargraphic' ? 'stargraphic' : 'starprnt');
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState<string | null>(null);
+  const ipOk = /^(\d{1,3}\.){3}\d{1,3}$/.test(ip.trim()) || /^[a-zA-Z0-9.-]+$/.test(ip.trim());
+  const portNum = Number(port);
+  const valid = ip.trim() !== '' && ipOk && Number.isInteger(portNum) && portNum > 0 && portNum < 65536;
+  const current = { ...printer, ipAddress: ip.trim(), port: portNum, paperWidthMm: width, commandMode: mode };
+  const run = async (fn: () => Promise<string>) => { setBusy(true); setMsg(null); try { setMsg(await fn()); } catch (e) { setMsg(e instanceof Error ? e.message : 'Failed.'); } finally { setBusy(false); } };
+  return (
+    <div className="bg-stone-50 border border-stone-200 rounded-lg p-3 space-y-2" id={`printer-conn-${printer.id}`}>
+      <p className="text-xs font-bold text-stone-800">{printer.name}</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+        <input id={`input-printer-ip-${printer.id}`} value={ip} onChange={(e) => setIp(e.target.value)} placeholder="192.168.20.31"
+          className="bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 font-mono" />
+        <input id={`input-printer-port-${printer.id}`} value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))} placeholder="9100"
+          className="bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 font-mono" />
+        <select id={`select-printer-width-${printer.id}`} value={width} onChange={(e) => setWidth(Number(e.target.value) === 58 ? 58 : 80)}
+          className="bg-white border border-stone-200 rounded-lg px-2.5 py-1.5">
+          <option value={80}>Paper: 80 mm</option>
+          <option value={58}>Paper: 58 mm</option>
+        </select>
+        <select id={`select-printer-mode-${printer.id}`} value={mode} onChange={(e) => setMode(e.target.value === 'stargraphic' ? 'stargraphic' : 'starprnt')}
+          className="bg-white border border-stone-200 rounded-lg px-2.5 py-1.5">
+          <option value="starprnt">Commands: StarPRNT</option>
+          <option value="stargraphic">Commands: Star Graphic</option>
+        </select>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" id={`btn-printer-save-${printer.id}`} disabled={busy || !valid}
+          onClick={() => run(() => onSave(printer.id, { ipAddress: ip.trim(), port: portNum, paperWidthMm: width, commandMode: mode }))}
+          className="px-3 py-1.5 rounded-lg bg-[#3F1C1A] text-[#EDD7A1] text-xs font-tech font-bold uppercase tracking-wider cursor-pointer disabled:opacity-40">
+          Save
+        </button>
+        <button type="button" id={`btn-printer-test-${printer.id}`} disabled={busy || !valid || !canTestPrint}
+          onClick={() => run(() => onTestPrint(current))}
+          className="px-3 py-1.5 rounded-lg border border-stone-300 text-xs font-tech font-bold uppercase tracking-wider text-stone-700 cursor-pointer disabled:opacity-40">
+          Test print
+        </button>
+      </div>
+      {msg && <p className="text-xs font-mono text-stone-700" id={`printer-msg-${printer.id}`}>{msg}</p>}
+    </div>
+  );
+}
